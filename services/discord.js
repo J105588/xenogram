@@ -257,10 +257,21 @@ client.on('interactionCreate', async interaction => {
       await interaction.editReply({ content: "📊 最新の統計データCSVです：", files: [file] });
     }
 
-  } catch (err) {
+    } catch (err) {
     console.error("Command Error:", err);
-    if (!interaction.replied) {
-      await interaction.editReply("❌ コマンドの実行中にエラーが発生しました。");
+    
+    // エラー通知チャンネルにも詳細を送信する（追加）
+    await sendErrorEmbed(err, `🚨 Command Execution Error (/${commandName})`);
+
+    try {
+      const errorMessage = "❌ コマンドの実行中にエラーが発生しました。詳細なログを確認してください。";
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(errorMessage);
+      } else {
+        await interaction.reply({ content: errorMessage, ephemeral: true });
+      }
+    } catch (followUpError) {
+      console.error("Failed to send error message to user:", followUpError);
     }
   }
 });
