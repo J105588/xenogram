@@ -29,7 +29,10 @@ async function updateVideoList() {
       // 詳細データを取得
       const apiData = await niconico.fetchNicoData(videoId);
       if (apiData) {
+        // 1. 動画マスター情報の追加
         await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail);
+        // 2. 初回の初期統計データの登録（ここが抜けていました）
+        await supabaseService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
         
         const embed = new EmbedBuilder()
           .setTitle("🎉 New Upload Detected!")
@@ -134,12 +137,18 @@ async function reportEachVideoStats() {
 function startScheduler() {
   // 1時間に1回 (毎時0分)
   cron.schedule('0 * * * *', () => {
-    updateVideoList().catch(console.error);
+    updateVideoList().catch(async err => {
+      console.error(err);
+      await discordService.sendErrorEmbed(err, "🚨 Scheduler: Hourly Update Failed");
+    });
   });
 
   // 毎朝7時0分
   cron.schedule('0 7 * * *', () => {
-    reportEachVideoStats().catch(console.error);
+    reportEachVideoStats().catch(async err => {
+      console.error(err);
+      await discordService.sendErrorEmbed(err, "🚨 Scheduler: Daily Report Failed");
+    });
   });
   
   console.log("Schedulers started.");

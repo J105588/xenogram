@@ -29,3 +29,16 @@ app.listen(PORT, () => {
     }
   }, 13 * 60 * 1000); // 13分
 });
+
+// グローバルな例外処理
+const { sendErrorEmbed } = require('./services/discord');
+
+process.on('uncaughtException', async (error) => {
+  console.error('Uncaught Exception:', error);
+  await sendErrorEmbed(error, "🚨 Uncaught Exception");
+});
+
+process.on('unhandledRejection', async (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  await sendErrorEmbed(reason, "🚨 Unhandled Rejection");
+});

@@ -148,6 +148,7 @@ client.on('interactionCreate', async interaction => {
       if (!apiData) return await interaction.editReply(`❌ 動画が見つかりませんでした。`);
       
       await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail);
+      await supabaseService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
       await interaction.editReply(`✅ **${apiData.title}** (${videoId}) を監視リストに追加しました！`);
       
       const videos = await supabaseService.getAllVideos();
@@ -276,8 +277,19 @@ async function sendNotification(embedOrText) {
   }
 }
 
+async function sendErrorEmbed(error, title = "🚨 Runtime Error") {
+  const errorMessage = error.stack || error.message || String(error);
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setColor(0xff0000)
+    .setDescription(`\`\`\`js\n${errorMessage.slice(0, 3900)}\n\`\`\``)
+    .setTimestamp();
+  
+  await sendNotification(embed);
+}
+
 function startDiscordBot() {
   if (config.DISCORD.TOKEN) client.login(config.DISCORD.TOKEN);
 }
 
-module.exports = { client, startDiscordBot, sendNotification };
+module.exports = { client, startDiscordBot, sendNotification, sendErrorEmbed };

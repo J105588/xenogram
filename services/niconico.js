@@ -10,10 +10,16 @@ const parser = new Parser();
 async function getRssItems() {
   const rssUrl = `https://www.nicovideo.jp/user/${config.NICO_USER_ID}/video?rss=2.0`;
   try {
-    const feed = await parser.parseURL(rssUrl);
+    // User-Agentがないと406エラーになる場合があるため、axiosでカスタムヘッダー付きで取得
+    const response = await axios.get(rssUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+    const feed = await parser.parseString(response.data);
     return feed.items; // [{ title, link, ... }, ...]
   } catch (e) {
-    console.error("RSS取得エラー:", e);
+    console.error("RSS取得エラー:", e.message);
     return [];
   }
 }
