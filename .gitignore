@@ -1,0 +1,5 @@
+node_modules/
+.env
+.DS_Store
+stats_export.csv
+main.gs.old
