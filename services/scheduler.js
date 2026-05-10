@@ -17,8 +17,10 @@ async function updateVideoList() {
 
   // 1. RSSから新着動画をチェック
   const items = await niconico.getRssItems();
+  // 投稿日時が古い順（過去から現在へ）に並べ替えて処理することで、重複防止と投稿順の整合性を保つ
+  const reversedItems = [...items].reverse(); 
   
-  for (const item of items) {
+  for (const item of reversedItems) {
     // URLからIDを抽出
     const link = item.link;
     const videoId = link.split("/").pop().split("?")[0].trim();
@@ -29,9 +31,9 @@ async function updateVideoList() {
       // 詳細データを取得
       const apiData = await niconico.fetchNicoData(videoId);
       if (apiData) {
-        // 1. 動画マスター情報の追加
-        await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail);
-        // 2. 初回の初期統計データの登録（ここが抜けていました）
+        // 1. 動画マスター情報の追加 (投稿日時を含める)
+        await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
+        // 2. 初回の初期統計データの登録
         await supabaseService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
         
         const embed = new EmbedBuilder()

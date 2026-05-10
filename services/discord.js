@@ -147,7 +147,7 @@ client.on('interactionCreate', async interaction => {
       const apiData = await fetchNicoData(videoId);
       if (!apiData) return await interaction.editReply(`❌ 動画が見つかりませんでした。`);
       
-      await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail);
+      await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
       await supabaseService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
       await interaction.editReply(`✅ **${apiData.title}** (${videoId}) を監視リストに追加しました！`);
       

@@ -2,7 +2,8 @@
 CREATE TABLE videos (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
-    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    published_at TIMESTAMP WITH TIME ZONE, -- 実際のニコニコ動画の投稿日時
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(), -- 監視開始日時
     tags TEXT,
     thumbnail_url TEXT
 );

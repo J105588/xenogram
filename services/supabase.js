@@ -30,22 +30,28 @@ async function hasVideo(videoId) {
 /**
  * 新しい動画をDBに登録
  */
-async function addVideo(videoId, title, tags, thumbnailUrl) {
+async function addVideo(videoId, title, tags, thumbnailUrl, publishedAt) {
   const { error } = await supabase
     .from('videos')
-    .insert([{ id: videoId, title, tags, thumbnail_url: thumbnailUrl }]);
+    .insert([{ 
+      id: videoId, 
+      title, 
+      tags, 
+      thumbnail_url: thumbnailUrl,
+      published_at: publishedAt ? new Date(publishedAt).toISOString() : null
+    }]);
   
   if (error) console.error("Error adding video:", error);
 }
 
 /**
- * 監視中の全動画を取得
+ * 監視中の全動画を取得（投稿日時が新しい順に並べ替え）
  */
 async function getAllVideos() {
   const { data, error } = await supabase
     .from('videos')
     .select('*')
-    .order('added_at', { ascending: true });
+    .order('published_at', { ascending: false }); // 投稿日時の降順
 
   if (error) {
     console.error("Error getting all videos:", error);

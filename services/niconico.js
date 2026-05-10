@@ -63,7 +63,8 @@ async function fetchNicoData(id) {
       like: video.count.like || 0,
       title: video.title || "Unknown",
       thumbnail: video.thumbnail.url || "",
-      tags: tags || "No Tags"
+      tags: tags || "No Tags",
+      publishedAt: video.registeredAt || null // 投稿日時を取得
     };
   } catch (e) {
     console.error(`v3_guest API エラー (${id}):`, e.message);
