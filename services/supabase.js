@@ -79,12 +79,39 @@ async function getLatestStats(videoId) {
 }
 
 /**
- * 統計情報をDBに記録
+ * 統計情報をDBに記録（同じ日のデータがあれば上書き、なければ新規追加）
  */
 async function recordStats(videoId, views, comments, mylists, likes) {
-  const { error } = await supabase
+  // システムのTZ（index.jsでAsia/Tokyoに設定済み）に基づき、本日の開始時刻と終了時刻を取得
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
+
+  // 1. 本日中に既に記録されたレコードがあるか検索
+  const { data: existingToday } = await supabase
     .from('video_stats')
-    .insert([{ video_id: videoId, views, comments, mylists, likes }]);
+    .select('id')
+    .eq('video_id', videoId)
+    .gte('recorded_at', startOfDay)
+    .lte('recorded_at', endOfDay)
+    .single();
+
+  let error;
+  
+  if (existingToday) {
+    // 2. 既に存在すれば、そのレコードを最新の数値で上書きアップデートする
+    const response = await supabase
+      .from('video_stats')
+      .update({ views, comments, mylists, likes, recorded_at: new Date().toISOString() })
+      .eq('id', existingToday.id);
+    error = response.error;
+  } else {
+    // 3. まだ無ければ、新規にインサートする
+    const response = await supabase
+      .from('video_stats')
+      .insert([{ video_id: videoId, views, comments, mylists, likes }]);
+    error = response.error;
+  }
 
   if (error) console.error("Error recording stats:", error);
 }
