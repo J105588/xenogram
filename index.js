@@ -1,3 +1,6 @@
+// システム全体のタイムゾーンを日本時間(JST)に設定
+process.env.TZ = 'Asia/Tokyo';
+
 const express = require('express');
 const axios = require('axios');
 const config = require('./config');

@@ -19,7 +19,10 @@ function generateChartUrl(statsHistory) {
     if (isNaN(d.getTime())) {
       labels.push("--/--");
     } else {
-      labels.push(`${('0' + (d.getMonth() + 1)).slice(-2)}/${('0' + d.getDate()).slice(-2)}`);
+      // 日本時間（Asia/Tokyo）基準で MM/DD 形式を取得
+      const m = d.toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', month: '2-digit' });
+      const day = d.toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', day: '2-digit' });
+      labels.push(`${m}/${day}`);
     }
 
     const growth = curr.views - prev.views;

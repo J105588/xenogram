@@ -143,15 +143,15 @@ function startScheduler() {
       console.error(err);
       await discordService.sendErrorEmbed(err, "🚨 Scheduler: Hourly Update Failed");
     });
-  });
+  }, { timezone: "Asia/Tokyo" });
 
-  // 毎朝7時0分
+  // 毎朝7時0分（日本時間）
   cron.schedule('0 7 * * *', () => {
     reportEachVideoStats().catch(async err => {
       console.error(err);
       await discordService.sendErrorEmbed(err, "🚨 Scheduler: Daily Report Failed");
     });
-  });
+  }, { timezone: "Asia/Tokyo" });
   
   console.log("Schedulers started.");
 }
