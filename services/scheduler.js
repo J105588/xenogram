@@ -110,7 +110,6 @@ async function reportEachVideoStats() {
 
     // グラフURLの生成
     const history = await supabaseService.getStatsHistory(video.id);
-    history.push({ views: apiData.view, recorded_at: new Date().toISOString() });
     const chartUrl = utils.generateChartUrl(history);
 
     const embed = new EmbedBuilder()

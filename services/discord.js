@@ -107,7 +107,16 @@ client.on('interactionCreate', async interaction => {
       const latestDbStats = await supabaseService.getLatestStats(videoId);
       const diff = utils.calculateDiff(apiData, latestDbStats);
       const history = await supabaseService.getStatsHistory(videoId);
-      history.push({ views: apiData.view, recorded_at: new Date().toISOString() });
+      
+      // 最新データが「今日」のものでない場合のみ、現在のリアルタイム値をグラフの末尾に一時的に追加する
+      const todayStr = new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' });
+      const lastDateStr = history.length > 0 
+        ? new Date(history[history.length - 1].recorded_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) 
+        : null;
+        
+      if (lastDateStr !== todayStr) {
+        history.push({ views: apiData.view, recorded_at: new Date().toISOString() });
+      }
       const chartUrl = utils.generateChartUrl(history);
 
       const embed = new EmbedBuilder()
