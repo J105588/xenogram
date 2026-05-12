@@ -323,7 +323,13 @@ async function sendErrorEmbed(error, title = "🚨 Runtime Error") {
 }
 
 function startDiscordBot() {
-  if (config.DISCORD.TOKEN) client.login(config.DISCORD.TOKEN);
+  if (!config.DISCORD.TOKEN) {
+    console.error("❌ [CRITICAL] DISCORD_TOKEN is missing! The bot CANNOT log in and will remain offline.");
+    return;
+  }
+  client.login(config.DISCORD.TOKEN).catch(err => {
+    console.error("❌ [CRITICAL] Failed to login to Discord. Is the token correct?", err);
+  });
 }
 
 module.exports = { client, startDiscordBot, sendNotification, sendErrorEmbed };
