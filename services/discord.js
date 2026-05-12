@@ -104,7 +104,7 @@ client.on('interactionCreate', async interaction => {
       const apiData = await fetchNicoData(videoId);
       if (!apiData) return await interaction.editReply(`❌ 動画ID ${videoId} のデータが取得できませんでした。`);
 
-      const latestDbStats = await supabaseService.getLatestStats(videoId);
+      const latestDbStats = await supabaseService.getYesterdayStats(videoId);
       const diff = utils.calculateDiff(apiData, latestDbStats);
       const history = await supabaseService.getStatsHistory(videoId);
       

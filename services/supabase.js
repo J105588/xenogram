@@ -79,6 +79,29 @@ async function getLatestStats(videoId) {
 }
 
 /**
+ * 「昨日まで」の最新の統計情報を取得（今日のレポート等で前日比を出す用）
+ */
+async function getYesterdayStats(videoId) {
+  const now = new Date();
+  // 本日の 00:00:00 JST
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
+
+  const { data, error } = await supabase
+    .from('video_stats')
+    .select('*')
+    .eq('video_id', videoId)
+    .lt('recorded_at', startOfToday) // 本日0時より前のもの
+    .order('recorded_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {
+    console.error("Error getting yesterday stats:", error);
+  }
+  return data || null;
+}
+
+/**
  * 統計情報をDBに記録（同じ日のデータがあれば上書き、なければ新規追加）
  */
 async function recordStats(videoId, views, comments, mylists, likes) {
@@ -188,6 +211,7 @@ module.exports = {
   removeVideo,
   getAllVideos,
   getLatestStats,
+  getYesterdayStats,
   getAllLatestStats,
   recordStats,
   updateVideoInfo,

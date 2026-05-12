@@ -52,41 +52,44 @@ async function updateVideoList() {
   // 2. マイルストーンチェック（全動画の現在の数値をチェックし、前回記録時と比べてキリ番を跨いでいたら通知）
   const videos = await supabaseService.getAllVideos();
   for (const video of videos) {
-    const apiData = await niconico.fetchNicoData(video.id);
-    if (!apiData) continue;
+    try {
+      const apiData = await niconico.fetchNicoData(video.id);
+      if (!apiData) continue;
 
-    const latestDbStats = await supabaseService.getLatestStats(video.id);
-    if (latestDbStats) {
-      const statsToCheck = [
-        { name: '再生', oldVal: latestDbStats.views, newVal: apiData.view, color: 0x3498db },
-        { name: 'いいね', oldVal: latestDbStats.likes, newVal: apiData.like, color: 0xe74c3c },
-        { name: 'マイリスト', oldVal: latestDbStats.mylists, newVal: apiData.mylist, color: 0xf1c40f },
-        { name: 'コメント', oldVal: latestDbStats.comments, newVal: apiData.comment, color: 0x9b59b6 }
-      ];
+      const latestDbStats = await supabaseService.getLatestStats(video.id);
+      if (latestDbStats) {
+        const statsToCheck = [
+          { name: '再生', oldVal: latestDbStats.views, newVal: apiData.view, color: 0x3498db },
+          { name: 'いいね', oldVal: latestDbStats.likes, newVal: apiData.like, color: 0xe74c3c },
+          { name: 'マイリスト', oldVal: latestDbStats.mylists, newVal: apiData.mylist, color: 0xf1c40f },
+          { name: 'コメント', oldVal: latestDbStats.comments, newVal: apiData.comment, color: 0x9b59b6 }
+        ];
 
-      for (const stat of statsToCheck) {
-        const crossed = utils.checkMilestone(stat.oldVal, stat.newVal, MILESTONE_STEP);
-        if (crossed) {
-          await discordService.sendNotification(
-            new EmbedBuilder()
-              .setTitle(`🎊 Milestone Reached!`)
-              .setDescription(`**${video.title}** が **${crossed.toLocaleString()}** ${stat.name}を突破しました！`)
-              .setColor(stat.color)
-              .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
-              .setThumbnail(apiData.thumbnail)
-          );
+        for (const stat of statsToCheck) {
+          const crossed = utils.checkMilestone(stat.oldVal, stat.newVal, MILESTONE_STEP);
+          if (crossed) {
+            await discordService.sendNotification(
+              new EmbedBuilder()
+                .setTitle(`🎊 Milestone Reached!`)
+                .setDescription(`**${video.title}** が **${crossed.toLocaleString()}** ${stat.name}を突破しました！`)
+                .setColor(stat.color)
+                .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
+                .setThumbnail(apiData.thumbnail)
+            );
+          }
         }
       }
-    }
-    
-    // タグやサムネが更新されていればDBも更新
-    if (video.tags !== apiData.tags || video.thumbnail_url !== apiData.thumbnail) {
-      await supabaseService.updateVideoInfo(video.id, apiData.tags, apiData.thumbnail);
-    }
+      
+      // タグやサムネが更新されていればDBも更新
+      if (video.tags !== apiData.tags || video.thumbnail_url !== apiData.thumbnail) {
+        await supabaseService.updateVideoInfo(video.id, apiData.tags, apiData.thumbnail);
+      }
 
-    // 重要: 現在の数値をDBに記録して最新スナップショットとして保存する
-    // これにより、次回のマイルストーン判定がこの最新値から始まるようになり、通知の重複スパムを防げます。
-    await supabaseService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
+      // 重要: 現在の数値をDBに記録して最新スナップショットとして保存する
+      await supabaseService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
+    } catch (videoUpdateErr) {
+      console.error(`❌ Error updating video ${video.id} in background schedule:`, videoUpdateErr);
+    }
   }
 
   // ステータスの更新 (監視動画数)
@@ -115,7 +118,7 @@ async function reportEachVideoStats() {
         continue;
       }
 
-      const latestDbStats = await supabaseService.getLatestStats(video.id);
+      const latestDbStats = await supabaseService.getYesterdayStats(video.id);
       const diff = utils.calculateDiff(apiData, latestDbStats);
       
       // 新しい統計をDBに記録
