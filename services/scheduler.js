@@ -83,6 +83,10 @@ async function updateVideoList() {
     if (video.tags !== apiData.tags || video.thumbnail_url !== apiData.thumbnail) {
       await supabaseService.updateVideoInfo(video.id, apiData.tags, apiData.thumbnail);
     }
+
+    // 重要: 現在の数値をDBに記録して最新スナップショットとして保存する
+    // これにより、次回のマイルストーン判定がこの最新値から始まるようになり、通知の重複スパムを防げます。
+    await supabaseService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
   }
 
   // ステータスの更新 (監視動画数)
@@ -96,6 +100,11 @@ async function updateVideoList() {
  */
 async function reportEachVideoStats() {
   console.log("Running daily reportEachVideoStats...");
+  
+  if (!config.DISCORD.CHANNEL_ID) {
+    throw new Error("⚠️ DISCORD_CHANNEL_ID is not set in configuration!");
+  }
+
   const videos = await supabaseService.getAllVideos();
 
   for (const video of videos) {

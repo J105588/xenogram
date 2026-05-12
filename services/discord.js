@@ -222,14 +222,20 @@ client.on('interactionCreate', async interaction => {
 
     else if (commandName === 'growth') {
       const videos = await supabaseService.getAllVideos();
-      let growths = [];
-      for (const v of videos) {
+      
+      // パフォーマンス最適化: 非同期処理の並列化
+      const growthPromises = videos.map(async (v) => {
         const history = await supabaseService.getStatsHistory(v.id, 2); // 最新2件
         if (history.length >= 2) {
-          const diff = history[1].views - history[0].views;
-          growths.push({ title: v.title, id: v.id, diff });
+          const diff = history[history.length - 1].views - history[history.length - 2].views;
+          return { title: v.title, id: v.id, diff };
         }
-      }
+        return null;
+      });
+
+      const allGrowths = await Promise.all(growthPromises);
+      const growths = allGrowths.filter(g => g !== null);
+
       growths.sort((a, b) => b.diff - a.diff);
       const embed = new EmbedBuilder().setTitle(`🚀 Top Growth (Views)`).setColor(0x2ecc71);
       let desc = growths.slice(0, 5).map((g, i) => `**${i+1}位** [${g.title}](https://www.nicovideo.jp/watch/${g.id}) : +${g.diff.toLocaleString()}再生`).join('\n');
@@ -286,14 +292,22 @@ client.on('interactionCreate', async interaction => {
 });
 
 async function sendNotification(embedOrText) {
-  if (!config.DISCORD.CHANNEL_ID) return;
+  if (!config.DISCORD.CHANNEL_ID) {
+    console.error("❌ [CRITICAL] DISCORD_CHANNEL_ID is missing in config. Cannot send notification.");
+    return false;
+  }
   try {
     const channel = await client.channels.fetch(config.DISCORD.CHANNEL_ID);
-    if (!channel) return;
+    if (!channel) {
+      console.error(`❌ [ERROR] Channel not found for ID: ${config.DISCORD.CHANNEL_ID}`);
+      return false;
+    }
     if (typeof embedOrText === 'string') await channel.send(embedOrText);
     else await channel.send({ embeds: [embedOrText] });
+    return true;
   } catch (error) {
-    console.error("Error sending notification:", error);
+    console.error("❌ [ERROR] Error sending notification to Discord:", error);
+    return false;
   }
 }
 

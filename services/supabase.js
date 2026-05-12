@@ -167,20 +167,18 @@ async function removeVideo(videoId) {
  * 全動画の最新の統計情報を取得する（ランキングや成長率計算用）
  */
 async function getAllLatestStats() {
-  // video_statsテーブルから、各video_idの最新行を取得したい
-  // Supabase/PostgreSQLで簡単にやるには、videosテーブルと最新のstatsを結合するか、
-  // 最新のレコードだけを抽出するクエリが必要です。
-  // ここではシンプルに全件取得してJSでソート・フィルタするか、RPCを呼ぶ必要がありますが、
-  // 簡易的に全動画を取得し、それぞれ最新1件を取得します。
   const videos = await getAllVideos();
-  const results = [];
-  for (const v of videos) {
+  
+  // パフォーマンス最適化: 直列ループではなく並列でクエリを実行し、レスポンスタイムを劇的に改善する
+  const statsPromises = videos.map(async (v) => {
     const stats = await getLatestStats(v.id);
-    if (stats) {
-      results.push({ video: v, stats });
-    }
-  }
-  return results;
+    return stats ? { video: v, stats } : null;
+  });
+  
+  const allResults = await Promise.all(statsPromises);
+  
+  // nullでないものだけを抽出して返す
+  return allResults.filter(r => r !== null);
 }
 
 module.exports = {

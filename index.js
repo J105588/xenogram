@@ -24,6 +24,12 @@ app.listen(PORT, () => {
   startScheduler();
 
   // 13分に1回、自分自身にアクセスしてRenderのスリープを回避
+  if (!process.env.RENDER_EXTERNAL_URL || process.env.RENDER_EXTERNAL_URL.includes('localhost')) {
+    console.warn("⚠️ [WARNING] RENDER_EXTERNAL_URL is not configured with a public URL. The sleep-avoidance ping will NOT work on Render and the bot will sleep!");
+  } else {
+    console.log(`✅ Self-ping protection enabled for URL: ${config.RENDER_EXTERNAL_URL}`);
+  }
+
   setInterval(() => {
     if (config.RENDER_EXTERNAL_URL) {
       axios.get(config.RENDER_EXTERNAL_URL)
