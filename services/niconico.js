@@ -14,7 +14,8 @@ async function getRssItems() {
     const response = await axios.get(rssUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }
+      },
+      timeout: 5000 // 5秒タイムアウト
     });
     const feed = await parser.parseString(response.data);
     return feed.items; // [{ title, link, ... }, ...]
@@ -41,10 +42,12 @@ async function fetchNicoData(id) {
   try {
     const response = await axios.get(url, {
       headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "X-Frontend-Id": "70",
         "X-Frontend-Version": "0",
         "X-Niconico-Language": "ja-jp"
       },
+      timeout: 5000, // 5秒でタイムアウトさせる（フリーズ防止）
       validateStatus: () => true // エラーコードでも例外を投げない
     });
 

@@ -108,39 +108,47 @@ async function reportEachVideoStats() {
   const videos = await supabaseService.getAllVideos();
 
   for (const video of videos) {
-    const apiData = await niconico.fetchNicoData(video.id);
-    if (!apiData) continue;
+    try {
+      const apiData = await niconico.fetchNicoData(video.id);
+      if (!apiData) {
+        console.warn(`⚠️ Skipping report for ${video.id}: Failed to fetch Niconico data.`);
+        continue;
+      }
 
-    const latestDbStats = await supabaseService.getLatestStats(video.id);
-    const diff = utils.calculateDiff(apiData, latestDbStats);
-    
-    // 新しい統計をDBに記録
-    await supabaseService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
+      const latestDbStats = await supabaseService.getLatestStats(video.id);
+      const diff = utils.calculateDiff(apiData, latestDbStats);
+      
+      // 新しい統計をDBに記録
+      await supabaseService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
 
-    // グラフURLの生成
-    const history = await supabaseService.getStatsHistory(video.id);
-    const chartUrl = utils.generateChartUrl(history);
+      // グラフURLの生成
+      const history = await supabaseService.getStatsHistory(video.id);
+      const chartUrl = utils.generateChartUrl(history);
 
-    const embed = new EmbedBuilder()
-      .setTitle(`Analytics: ${apiData.title}`)
-      .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
-      .setColor(parseInt(config.CHART_COLOR, 16))
-      .setThumbnail(apiData.thumbnail)
-      .addFields(
-        { name: "Views", value: `**${apiData.view.toLocaleString()}** (${utils.formatDiff(diff.view)})`, inline: true },
-        { name: "Likes", value: `**${apiData.like.toLocaleString()}** (${utils.formatDiff(diff.like)})`, inline: true },
-        { name: "Mylist", value: `**${apiData.mylist.toLocaleString()}** (${utils.formatDiff(diff.mylist)})`, inline: true },
-        { name: "Comments", value: `**${apiData.comment.toLocaleString()}** (${utils.formatDiff(diff.comment)})`, inline: true },
-        { name: "Tags", value: `\`${apiData.tags}\``, inline: false }
-      )
-      .setFooter({ text: config.FOOTER_TEXT })
-      .setTimestamp();
+      const embed = new EmbedBuilder()
+        .setTitle(`Analytics: ${apiData.title}`)
+        .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
+        .setColor(parseInt(config.CHART_COLOR, 16))
+        .setThumbnail(apiData.thumbnail)
+        .addFields(
+          { name: "Views", value: `**${apiData.view.toLocaleString()}** (${utils.formatDiff(diff.view)})`, inline: true },
+          { name: "Likes", value: `**${apiData.like.toLocaleString()}** (${utils.formatDiff(diff.like)})`, inline: true },
+          { name: "Mylist", value: `**${apiData.mylist.toLocaleString()}** (${utils.formatDiff(diff.mylist)})`, inline: true },
+          { name: "Comments", value: `**${apiData.comment.toLocaleString()}** (${utils.formatDiff(diff.comment)})`, inline: true },
+          { name: "Tags", value: `\`${apiData.tags}\``, inline: false }
+        )
+        .setFooter({ text: config.FOOTER_TEXT })
+        .setTimestamp();
 
-    if (chartUrl) {
-      embed.setImage(chartUrl);
+      if (chartUrl) {
+        embed.setImage(chartUrl);
+      }
+
+      await discordService.sendNotification(embed);
+    } catch (itemError) {
+      console.error(`❌ Failed to generate/send report for video ${video.id}:`, itemError);
+      // 1本の動画で失敗しても、他の動画のレポート処理を止めずに次へ進む
     }
-
-    await discordService.sendNotification(embed);
   }
 }
 
