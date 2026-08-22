@@ -95,7 +95,9 @@ async function set_schedule(interaction) {
 
   if (!result.ok) {
     const message = result.reason === 'invalid_cron'
-      ? `\`${cronExpr}\` は正しいcron形式ではありません（例: "5 * * * *" = 毎時5分, "0 7 * * *" = 毎朝7時）。`
+      ? `\`${cronExpr}\` は正しいcron形式ではありません。\n` +
+        `「分 時 日 月 曜日」の5項目をスペース区切りで指定してください（値を指定しない項目は \`*\`）。\n` +
+        `例: \`5 * * * *\` = 毎時5分 / \`0 7 * * *\` = 毎朝7時0分 / \`0 21 * * 0\` = 毎週日曜21時0分`
       : '対象ジョブが見つかりませんでした。';
     return await interaction.editReply(message);
   }
