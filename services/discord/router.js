@@ -1,10 +1,27 @@
 const { sendErrorEmbed } = require('./client');
 
+const miscCmds = require('./commands/misc');
+const videoCmds = require('./commands/videos');
+const vocacolleCmds = require('./commands/vocacolle');
+const settingsCmds = require('./commands/settings');
+const systemCmds = require('./commands/system');
+
 const handlers = {
-  ...require('./commands/misc'),
-  ...require('./commands/videos'),
-  ...require('./commands/vocacolle'),
-  ...require('./commands/settings'),
+  ...miscCmds,
+  ...videoCmds,
+  ...vocacolleCmds,
+  ...settingsCmds,
+  ...systemCmds,
+};
+
+// video_id/id/user_id等、手打ちしにくいIDを入力補完するオートコンプリート。
+// コマンドごとに使うオプションは1つだけなので、コマンド名単位の対応でよい。
+const AUTOCOMPLETE = {
+  stats: videoCmds.autocompleteVideoId,
+  remove: videoCmds.autocompleteVideoId,
+  compare: videoCmds.autocompleteVideoId,
+  vc_remove: vocacolleCmds.autocompleteKeywordId,
+  user_remove: settingsCmds.autocompleteUserId,
 };
 
 /**
@@ -13,6 +30,21 @@ const handlers = {
  */
 function attachInteractionHandler(client) {
   client.on('interactionCreate', async (interaction) => {
+    if (interaction.isAutocomplete()) {
+      const autocompleteHandler = AUTOCOMPLETE[interaction.commandName];
+      try {
+        if (autocompleteHandler) {
+          await autocompleteHandler(interaction);
+        } else {
+          await interaction.respond([]);
+        }
+      } catch (err) {
+        console.error('Autocomplete Error:', err);
+        try { await interaction.respond([]); } catch { /* 応答不可なら諦める */ }
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
     const { commandName } = interaction;
     const handler = handlers[commandName];

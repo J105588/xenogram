@@ -10,7 +10,7 @@ const CATEGORIES = [
   { label: '🎯 ボカコレ/ランキング監視', match: (n) => n.startsWith('vc_') },
   { label: '📡 監視対象ユーザー（複数のニコニコアカウントを追う）', match: (n) => n.startsWith('user_') },
   { label: '⚙️ 動作の細かい調整', match: (n) => n.startsWith('set_') || n === 'settings' },
-  { label: '🔧 管理・実行', match: (n) => ['force_update', 'daily_report', 'status'].includes(n) },
+  { label: '🔧 管理・実行', match: (n) => ['force_update', 'daily_report', 'status', 'logs'].includes(n) },
   { label: 'その他', match: () => true },
 ];
 
@@ -20,7 +20,9 @@ async function help(interaction) {
     .setColor(parseInt(config.CHART_COLOR, 16))
     .setDescription(
       '自分（XENOGRAM）以外のニコニコアカウントも監視したい場合は `/user_add` で追加できます（複数人を同時監視可能）。\n' +
-      'マイルストーンの刻み幅・急上昇のしきい値・各定期チェックの実行時刻は `/settings` で確認、`/set_milestone` `/set_spike` `/set_rank_threshold` `/set_schedule` で変更できます。'
+      'マイルストーンの刻み幅・急上昇のしきい値・各定期チェックの実行時刻は `/settings` で確認、`/set_milestone` `/set_spike` `/set_rank_threshold` `/set_schedule` で変更できます。\n' +
+      '💡 動画ID等を入力する項目は、入力し始めると候補が自動で出てきます（`/stats` `/remove` `/compare` `/vc_remove` `/user_remove`）。コピペ不要です。\n' +
+      '📄 サーバー機のログを見たいときは `/logs` で直近の実行ログ・エラーログをこの場で確認できます。'
     );
 
   const remaining = [...commands];

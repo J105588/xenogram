@@ -63,4 +63,51 @@ async function closeBrowserSafely(browser, timeoutMs = 8000) {
   }
 }
 
-module.exports = { launchBrowser, closeBrowserSafely };
+/**
+ * 起動時に、前回セッションの残骸として残っているChromiumプロセスを掃除する。
+ *
+ * closeBrowserSafely() は「自分が起動したプロセス」しか閉じられない。
+ * PM2の強制終了（kill_timeout超過）やテスト実行の異常終了等でNode本体だけが
+ * 落ちた場合、子のChromiumはWindowsでは自動終了せずゾンビとして残り続ける。
+ * Bot起動直後（＝まだ自分では何も起動していないタイミング）に一度だけ、
+ * Puppeteerのキャッシュから起動されたchrome.exeを（他人のブラウザは巻き込まずに）掃除する。
+ */
+async function reapOrphanedChromeProcesses() {
+  if (process.platform !== 'win32') return 0;
+
+  const { execFile } = require('child_process');
+  const marker = require('path').join('.cache', 'puppeteer').toLowerCase();
+
+  const listProcesses = () => new Promise((resolve) => {
+    execFile('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      "Get-CimInstance Win32_Process -Filter \"name='chrome.exe'\" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress",
+    ], { timeout: 10000, windowsHide: true }, (err, stdout) => {
+      if (err) {
+        console.warn('[BROWSER] 残留プロセスの調査に失敗しました（スキップします）:', err.message);
+        return resolve([]);
+      }
+      try {
+        const parsed = JSON.parse(stdout || '[]');
+        resolve(Array.isArray(parsed) ? parsed : [parsed]);
+      } catch {
+        resolve([]);
+      }
+    });
+  });
+
+  const processes = await listProcesses();
+  // Puppeteerのキャッシュ配下から起動されたものだけを対象にする
+  // （ユーザーが普段使っているChromeブラウザのプロファイルは絶対に触らない）
+  const targets = processes.filter((p) => p && p.CommandLine && p.CommandLine.toLowerCase().includes(marker));
+  if (!targets.length) return 0;
+
+  await Promise.all(targets.map((p) => new Promise((resolve) => {
+    execFile('taskkill', ['/PID', String(p.ProcessId), '/T', '/F'], { windowsHide: true }, () => resolve());
+  })));
+
+  console.log(`[BROWSER] 起動時クリーンアップ: 残留Chromiumプロセスを${targets.length}件終了しました`);
+  return targets.length;
+}
+
+module.exports = { launchBrowser, closeBrowserSafely, reapOrphanedChromeProcesses };

@@ -128,4 +128,15 @@ async function vc_toggle(interaction) {
   );
 }
 
-module.exports = { vc_add, vc_list, vc_remove, vc_check, vc_toggle };
+// vc_remove の id オプション用オートコンプリート。
+// /vc_list を別途開かなくても、削除対象を選ぶだけで済むようにする。
+async function autocompleteKeywordId(interaction) {
+  const keywords = await dbService.getVocacolleKeywords(true);
+  const choices = keywords.slice(0, 25).map((k) => ({
+    name: `#${k.id} [${k.target === 'artist' ? 'アーティスト' : '曲名'}] ${k.keyword}`.slice(0, 100),
+    value: Number(k.id),
+  }));
+  await interaction.respond(choices);
+}
+
+module.exports = { vc_add, vc_list, vc_remove, vc_check, vc_toggle, autocompleteKeywordId };

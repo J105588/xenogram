@@ -8,7 +8,7 @@ const commands = [
   {
     name: 'stats',
     description: '指定した動画の最新データとグラフを表示します。',
-    options: [{ name: 'video_id', type: 3, description: '動画ID (例: sm1234567)', required: true }]
+    options: [{ name: 'video_id', type: 3, description: '動画ID (例: sm1234567)', required: true, autocomplete: true }]
   },
   { name: 'list', description: '現在監視中の全動画のリストを表示します。' },
   {
@@ -19,14 +19,14 @@ const commands = [
   {
     name: 'remove',
     description: '指定した動画を監視リストから除外します。',
-    options: [{ name: 'video_id', type: 3, description: '動画ID (例: sm1234567)', required: true }]
+    options: [{ name: 'video_id', type: 3, description: '動画ID (例: sm1234567)', required: true, autocomplete: true }]
   },
   {
     name: 'compare',
     description: '2つの動画のステータスを比較します。',
     options: [
-      { name: 'video_id1', type: 3, description: '動画ID 1', required: true },
-      { name: 'video_id2', type: 3, description: '動画ID 2', required: true }
+      { name: 'video_id1', type: 3, description: '動画ID 1', required: true, autocomplete: true },
+      { name: 'video_id2', type: 3, description: '動画ID 2', required: true, autocomplete: true }
     ]
   },
   { name: 'force_update', description: '【管理者】1時間に1回の定期更新を手動で実行します。' },
@@ -69,7 +69,7 @@ const commands = [
   {
     name: 'vc_remove',
     description: 'ボカコレ監視キーワードを削除します。',
-    options: [{ name: 'id', type: 4, description: '/vc_list で表示されるID', required: true }]
+    options: [{ name: 'id', type: 4, description: '/vc_list で表示されるID', required: true, autocomplete: true }]
   },
   { name: 'vc_check', description: '【管理者】ボカコレ監視を今すぐ1回実行します。' },
   {
@@ -95,7 +95,7 @@ const commands = [
   {
     name: 'user_remove',
     description: '【管理者】監視対象のニコニコユーザーIDを削除します。',
-    options: [{ name: 'user_id', type: 3, description: 'ニコニコのユーザーID', required: true }]
+    options: [{ name: 'user_id', type: 3, description: 'ニコニコのユーザーID', required: true, autocomplete: true }]
   },
   { name: 'user_list', description: '現在監視中のニコニコユーザーID一覧を表示します。' },
   {
@@ -132,7 +132,21 @@ const commands = [
       { name: 'cron', type: 3, description: 'cron式 (例: "5 * * * *" = 毎時5分)', required: true }
     ]
   },
-  { name: 'settings', description: '現在のマイルストーン・急上昇・実行スケジュール等の設定値を一覧表示します。' }
+  { name: 'settings', description: '現在のマイルストーン・急上昇・実行スケジュール等の設定値を一覧表示します。' },
+  {
+    name: 'logs',
+    description: '【管理者】直近のBotログ（実行ログ・エラーログ）を表示します。',
+    options: [
+      { name: 'lines', type: 4, description: '取得する行数（既定40、最大300）', required: false },
+      {
+        name: 'type', type: 3, description: '表示するログの種類', required: false,
+        choices: [
+          { name: 'すべて', value: 'all' },
+          { name: 'エラーのみ', value: 'error' }
+        ]
+      }
+    ]
+  }
 ];
 
 async function registerCommands() {

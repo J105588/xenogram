@@ -6,6 +6,7 @@ const axios = require('axios');
 const config = require('./config');
 const { startDiscordBot } = require('./services/discord');
 const { startScheduler } = require('./services/scheduler');
+const { reapOrphanedChromeProcesses } = require('./services/browser');
 
 console.log("🔍 Checking Environment Variables on Startup:");
 console.log(`- DISCORD_TOKEN: ${config.DISCORD.TOKEN ? "✅ PRESENT" : "❌ MISSING"}`);
@@ -23,7 +24,10 @@ app.get('/', (req, res) => {
 // サーバー起動
 app.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
-  
+
+  // 前回セッションの残骸（ゾンビ化したChromium）を掃除してから起動する
+  reapOrphanedChromeProcesses().catch((e) => console.warn('[BROWSER] 起動時クリーンアップでエラー:', e.message));
+
   // Discord Botとスケジューラーの起動
   startDiscordBot();
   startScheduler();

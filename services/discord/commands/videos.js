@@ -214,9 +214,22 @@ async function exportCsv(interaction) {
   await interaction.editReply({ content: "📊 最新の統計データCSVです：", files: [file] });
 }
 
+// stats/remove/compare の video_id 系オプション共通のオートコンプリート。
+// IDを手打ち・コピペせずに済むよう、ID・タイトルの部分一致で候補を出す。
+async function autocompleteVideoId(interaction) {
+  const focused = interaction.options.getFocused().toLowerCase();
+  const videos = await dbService.getAllVideos();
+  const choices = videos
+    .filter((v) => v.id.toLowerCase().includes(focused) || (v.title || '').toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((v) => ({ name: `${v.id} - ${v.title}`.slice(0, 100), value: v.id }));
+  await interaction.respond(choices);
+}
+
 module.exports = {
   stats, list, add, remove, compare,
   force_update, daily_report,
   ranking, growth, upcoming,
   export: exportCsv,
+  autocompleteVideoId,
 };

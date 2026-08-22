@@ -137,4 +137,15 @@ async function settings(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-module.exports = { user_add, user_remove, user_list, set_milestone, set_spike, set_rank_threshold, set_schedule, settings };
+// user_remove の user_id オプション用オートコンプリート
+async function autocompleteUserId(interaction) {
+  const focused = interaction.options.getFocused().toLowerCase();
+  const users = dbService.getNicoUsersDetailed();
+  const choices = users
+    .filter((u) => u.user_id.includes(focused) || (u.label || '').toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((u) => ({ name: `${u.user_id}${u.label ? ` - ${u.label}` : ''}`.slice(0, 100), value: u.user_id }));
+  await interaction.respond(choices);
+}
+
+module.exports = { user_add, user_remove, user_list, set_milestone, set_spike, set_rank_threshold, set_schedule, settings, autocompleteUserId };
