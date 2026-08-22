@@ -7,7 +7,8 @@
     "start": "node index.js",
     "dev": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "vocacolle:dryrun": "node test/vocacolle_dry_run.js"
+    "vocacolle:dryrun": "node test/vocacolle_dry_run.js",
+    "render-build": "npm install && npx puppeteer browsers install chrome"
   },
   "keywords": [],
   "author": "",
