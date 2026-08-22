@@ -434,7 +434,9 @@ client.on('interactionCreate', async interaction => {
     else if (commandName === 'vc_check') {
       await interaction.editReply("ボカコレランキングを確認しています...（/vc_toggle off 中でも実行します）");
       const scheduler = require('./scheduler');
-      const result = await scheduler.runVocacolleWatch({ bypassToggle: true });
+      // notifySummary: true にして、新規ヒットが無い場合でも定期実行と同じ
+      // スクショ付きサマリーがチャンネルに届くようにする（手動確認の見た目を統一）
+      const result = await scheduler.runVocacolleWatch({ bypassToggle: true, notifySummary: true });
       if (result.skipped === 'no_keywords') {
         await interaction.followUp("監視キーワードが1件も登録されていません。/vc_add で登録してください。");
       } else {
