@@ -217,10 +217,22 @@ async function runVocacolleWatch(options = {}) {
           { name: '順位表', value: `${ranking.items.length}件`, inline: true },
           { name: '有効キーワード', value: `${activeCount}件`, inline: true },
           { name: 'ヒット', value: `${matches.length}件（新規: 0件）`, inline: true }
-        )
-        .setFooter({ text: config.FOOTER_TEXT })
-        .setTimestamp();
+        );
 
+      if (matches.length) {
+        // 新規ではなくても、現在該当している曲の最新の順位・数値を毎回出す
+        const lines = matches.map(({ keyword, item }) => {
+          const targetLabel = keyword.target === 'artist' ? 'アーティスト名' : '曲名';
+          return `**${item.rank}位** [${item.title}](https://www.nicovideo.jp/watch/${item.watchId}) / ${item.artist}\n　再生 ${item.view.toLocaleString()}・いいね ${item.like.toLocaleString()}（一致: ${targetLabel} \`${keyword.keyword}\`）`;
+        });
+        let listText = lines.join('\n');
+        if (listText.length > 1000) listText = listText.slice(0, 950) + '\n... (省略されました)';
+        embed.addFields({ name: '現在の該当曲（最新の数値）', value: listText, inline: false });
+      } else {
+        embed.addFields({ name: '現在の該当曲', value: '現在ヒットしているものはありません。', inline: false });
+      }
+
+      embed.setFooter({ text: config.FOOTER_TEXT }).setTimestamp();
       await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files: [] });
     }
 
