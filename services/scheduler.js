@@ -164,10 +164,11 @@ async function reportEachVideoStats() {
  * @param {object} [options]
  * @param {boolean} [options.force] true なら通知済みでも再通知する（手動確認用）
  * @param {boolean} [options.bypassToggle] true なら /vc_toggle off で無効化中でも実行する（/vc_check 用）
+ * @param {boolean} [options.notifySummary] true なら新規ヒットが無くてもチェック結果をチャンネルに通知する（定期実行用）
  * @returns {Promise<{checked: number, hits: number, notified: number, rankingTitle: string, skipped?: string}>}
  */
 async function runVocacolleWatch(options = {}) {
-  const { force = false, bypassToggle = false } = options;
+  const { force = false, bypassToggle = false, notifySummary = false } = options;
   console.log("Running vocacolle ranking watch...");
 
   if (!bypassToggle) {
@@ -206,6 +207,23 @@ async function runVocacolleWatch(options = {}) {
 
   if (!pending.length) {
     console.log(`[VOCACOLLE] 新規のヒットはありません（ヒット総数 ${matches.length}件）`);
+
+    if (notifySummary) {
+      const embed = new EmbedBuilder()
+        .setTitle('ボカコレ監視 定期チェック')
+        .setColor(parseInt(config.CHART_COLOR, 16))
+        .setDescription(ranking.title)
+        .addFields(
+          { name: '順位表', value: `${ranking.items.length}件`, inline: true },
+          { name: '有効キーワード', value: `${activeCount}件`, inline: true },
+          { name: 'ヒット', value: `${matches.length}件（新規: 0件）`, inline: true }
+        )
+        .setFooter({ text: config.FOOTER_TEXT })
+        .setTimestamp();
+
+      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files: [] });
+    }
+
     return { checked: ranking.items.length, hits: matches.length, notified: 0, rankingTitle: ranking.title };
   }
 
@@ -302,7 +320,7 @@ function startScheduler() {
   // ボカコレ ランキング監視 (既定: 毎時5分)
   if (config.VOCACOLLE.ENABLED) {
     cron.schedule(config.VOCACOLLE.CRON, () => {
-      runVocacolleWatch().catch(async err => {
+      runVocacolleWatch({ notifySummary: true }).catch(async err => {
         console.error(err);
         await discordService.sendErrorEmbed(err, "🚨 Scheduler: Vocacolle Watch Failed");
       });
