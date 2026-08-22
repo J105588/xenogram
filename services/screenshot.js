@@ -119,8 +119,9 @@ async function captureRankingEntries({ url, watchIds = [] }) {
     await dismissOverlays(page);
 
     // ランキング一覧はクライアント側で描画されるため、動画リンクが出るまで待つ
+    // （Render等の低スペック環境では描画自体に時間がかかるため、撮影全体のタイムアウトと揃える）
     await page
-      .waitForSelector('a[href*="/watch/"]', { timeout: 20000 })
+      .waitForSelector('a[href*="/watch/"]', { timeout: config.SCREENSHOT.TIMEOUT_MS })
       .catch(() => console.warn('[VOCACOLLE] ランキング一覧のリンクを検出できませんでした'));
     await wait(1500); // 遅延読み込みのサムネイルが表示されるまで少し待つ
 
