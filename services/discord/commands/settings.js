@@ -88,21 +88,25 @@ async function set_rank_threshold(interaction) {
 
 async function set_schedule(interaction) {
   const job = interaction.options.getString('job');
-  const cronExpr = interaction.options.getString('cron').trim();
+  const input = interaction.options.getString('cron').trim();
 
   const scheduler = require('../../scheduler');
-  const result = scheduler.rescheduleJob(job, cronExpr);
+  const result = scheduler.rescheduleJob(job, input);
 
   if (!result.ok) {
-    const message = result.reason === 'invalid_cron'
-      ? `\`${cronExpr}\` は正しいcron形式ではありません。\n` +
-        `「分 時 日 月 曜日」の5項目をスペース区切りで指定してください（値を指定しない項目は \`*\`）。\n` +
-        `例: \`5 * * * *\` = 毎時5分 / \`0 7 * * *\` = 毎朝7時0分 / \`0 21 * * 0\` = 毎週日曜21時0分`
-      : '対象ジョブが見つかりませんでした。';
-    return await interaction.editReply(message);
+    if (result.reason === 'invalid_format') {
+      const { SHAPE_EXAMPLES } = require('../../cronFriendly');
+      const example = SHAPE_EXAMPLES[result.scheduleShape] || '';
+      return await interaction.editReply(
+        `\`${input}\` を解釈できませんでした。\n` +
+        `入力例: ${example}\n` +
+        `（cron式を直接入力することもできます。例: \`5 * * * *\`）`
+      );
+    }
+    return await interaction.editReply('対象ジョブが見つかりませんでした。');
   }
 
-  await interaction.editReply(`✅ スケジュールを \`${cronExpr}\` に変更しました。`);
+  await interaction.editReply(`✅ スケジュールを \`${result.cronExpr}\`（入力: \`${input}\`）に変更しました。`);
 }
 
 async function settings(interaction) {
@@ -137,6 +141,45 @@ async function settings(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
+// set_schedule の cron オプション用オートコンプリート。
+// 選択済みのジョブ（毎時/毎日/毎週）に応じて、そのまま選ぶだけで使えるプリセットを提示する。
+const SCHEDULE_PRESETS = {
+  hourly: [
+    { value: '0分', note: '毎時0分' },
+    { value: '5分', note: '毎時5分' },
+    { value: '15分', note: '毎時15分' },
+    { value: '30分', note: '毎時30分' },
+    { value: '45分', note: '毎時45分' },
+  ],
+  daily: [
+    { value: '7時', note: '毎朝7時' },
+    { value: '7時30分', note: '毎朝7時30分' },
+    { value: '9時', note: '毎朝9時' },
+    { value: '21時', note: '毎晩21時' },
+  ],
+  weekly: [
+    { value: '日 21時', note: '毎週日曜21時' },
+    { value: '月 9時', note: '毎週月曜9時' },
+    { value: '金 18時', note: '毎週金曜18時' },
+    { value: '土 12時', note: '毎週土曜12時' },
+  ],
+};
+
+async function autocompleteScheduleInput(interaction) {
+  const scheduler = require('../../scheduler');
+  const job = interaction.options.getString('job');
+  const def = scheduler.listJobs().find((j) => j.key === job);
+  const list = def ? SCHEDULE_PRESETS[def.scheduleShape] : Object.values(SCHEDULE_PRESETS).flat();
+
+  const focused = (interaction.options.getFocused() || '').toLowerCase();
+  const choices = list
+    .filter((p) => p.value.toLowerCase().includes(focused) || p.note.toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((p) => ({ name: `${p.value}（${p.note}）`, value: p.value }));
+
+  await interaction.respond(choices);
+}
+
 // user_remove の user_id オプション用オートコンプリート
 async function autocompleteUserId(interaction) {
   const focused = interaction.options.getFocused().toLowerCase();
@@ -148,4 +191,7 @@ async function autocompleteUserId(interaction) {
   await interaction.respond(choices);
 }
 
-module.exports = { user_add, user_remove, user_list, set_milestone, set_spike, set_rank_threshold, set_schedule, settings, autocompleteUserId };
+module.exports = {
+  user_add, user_remove, user_list, set_milestone, set_spike, set_rank_threshold, set_schedule, settings,
+  autocompleteUserId, autocompleteScheduleInput,
+};

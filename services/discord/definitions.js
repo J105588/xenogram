@@ -118,7 +118,7 @@ const commands = [
   },
   {
     name: 'set_schedule',
-    description: '【管理者】各定期ジョブの実行時刻（cron式）を変更します。',
+    description: '【管理者】各定期ジョブの実行時刻を変更します（例: 5分 / 7時30分 / 日 21時。cron式も可）。',
     options: [
       {
         name: 'job', type: 3, description: '対象ジョブ', required: true,
@@ -129,7 +129,11 @@ const commands = [
           { name: '週次まとめレポート', value: 'weekly_report' }
         ]
       },
-      { name: 'cron', type: 3, description: 'cron式 (例: "5 * * * *" = 毎時5分)', required: true }
+      {
+        name: 'cron', type: 3,
+        description: '実行時刻（例: 5分 / 7時30分 / 日 21時）。cron式もそのまま使えます',
+        required: true, autocomplete: true
+      }
     ]
   },
   { name: 'settings', description: '現在のマイルストーン・急上昇・実行スケジュール等の設定値を一覧表示します。' },

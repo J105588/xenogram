@@ -22,6 +22,7 @@ const AUTOCOMPLETE = {
   compare: videoCmds.autocompleteVideoId,
   vc_remove: vocacolleCmds.autocompleteKeywordId,
   user_remove: settingsCmds.autocompleteUserId,
+  set_schedule: settingsCmds.autocompleteScheduleInput,
 };
 
 /**
