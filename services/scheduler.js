@@ -11,6 +11,19 @@ const config = require('../config');
 // キリ番（マイルストーン）の設定単位
 const MILESTONE_STEP = 100;
 
+// 各定期ジョブが最後に成功した時刻（/status コマンド用）。
+// プロセス内メモリのみで保持するため、再起動すると null に戻る
+// （＝「再起動後まだ1回も実行されていない」ことがそのまま可視化される）
+const lastRunAt = {
+  updateVideoList: null,
+  reportEachVideoStats: null,
+  vocacolleWatch: null,
+};
+
+function getSchedulerStatus() {
+  return { ...lastRunAt };
+}
+
 /**
  * 【1時間ごとに実行】新着動画の検知とマイルストーンチェック
  */
@@ -98,6 +111,8 @@ async function updateVideoList() {
   if (discordService.client.user) {
     discordService.client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });
   }
+
+  lastRunAt.updateVideoList = new Date().toISOString();
 }
 
 /**
@@ -155,6 +170,8 @@ async function reportEachVideoStats() {
       // 1本の動画で失敗しても、他の動画のレポート処理を止めずに次へ進む
     }
   }
+
+  lastRunAt.reportEachVideoStats = new Date().toISOString();
 }
 
 /**
@@ -294,6 +311,7 @@ async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summ
       await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embeds: embedsToSend, files });
     }
 
+    lastRunAt.vocacolleWatch = new Date().toISOString();
     return { checked: ranking.items.length, hits: matches.length, notified: 0, rankingTitle: ranking.title };
   }
 
@@ -367,6 +385,7 @@ async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summ
   }
 
   console.log(`[VOCACOLLE] ${notified}件を通知しました`);
+  lastRunAt.vocacolleWatch = new Date().toISOString();
   return { checked: ranking.items.length, hits: matches.length, notified, rankingTitle: ranking.title };
 }
 
@@ -407,5 +426,6 @@ module.exports = {
   startScheduler,
   updateVideoList,
   reportEachVideoStats,
-  runVocacolleWatch
+  runVocacolleWatch,
+  getSchedulerStatus
 };

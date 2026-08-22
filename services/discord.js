@@ -86,7 +86,8 @@ const commands = [
         { name: '無効にする (OFF)', value: 'off' }
       ]
     }]
-  }
+  },
+  { name: 'status', description: 'Botの稼働状況（起動時間・メモリ・各定期ジョブの最終実行）を表示します。' }
 ];
 
 /**
@@ -144,7 +145,29 @@ client.once('ready', async () => {
   const videos = await supabaseService.getAllVideos();
   client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });
   await registerCommands();
+  await sendStartupNotice(videos.length);
 });
+
+/**
+ * 起動（PM2によるクラッシュ後の自動復旧を含む）のたびに、
+ * Botが今オンラインであることをDiscordに一報する。
+ * 個人PC運用ではプロセスが落ちたまま誰も気づかないリスクがあるため。
+ */
+async function sendStartupNotice(videoCount) {
+  const os = require('os');
+  const embed = new EmbedBuilder()
+    .setTitle('🟢 Bot起動しました')
+    .setColor(0x2ecc71)
+    .addFields(
+      { name: 'ホスト', value: os.hostname(), inline: true },
+      { name: 'Node.js', value: process.version, inline: true },
+      { name: '監視動画数', value: `${videoCount}本`, inline: true }
+    )
+    .setFooter({ text: config.FOOTER_TEXT })
+    .setTimestamp();
+
+  await sendNotification(embed);
+}
 
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -248,18 +271,54 @@ client.on('interactionCreate', async interaction => {
     else if (commandName === 'compare') {
       const v1 = interaction.options.getString('video_id1');
       const v2 = interaction.options.getString('video_id2');
-      const data1 = await fetchNicoData(v1);
-      const data2 = await fetchNicoData(v2);
+      const [data1, data2] = await Promise.all([fetchNicoData(v1), fetchNicoData(v2)]);
       if (!data1 || !data2) return await interaction.editReply(`❌ 一部または両方の動画データが取得できませんでした。`);
+
+      // 監視対象なら、直近24時間の伸び（DBの生履歴の中で最も古い記録との差分）も比較する
+      const [growth1, growth2] = await Promise.all([
+        supabaseService.getRecentStatsHistory(v1, 24),
+        supabaseService.getRecentStatsHistory(v2, 24)
+      ]);
+      const diff24h = (current, history) => {
+        if (!history.length) return null;
+        const oldest = history[0];
+        return {
+          view: current.view - oldest.views,
+          like: current.like - oldest.likes,
+          spanHours: Math.max(1, Math.round((Date.now() - new Date(oldest.recorded_at).getTime()) / 3600000))
+        };
+      };
+      const g1 = diff24h(data1, growth1);
+      const g2 = diff24h(data2, growth2);
 
       const embed = new EmbedBuilder()
         .setTitle(`⚔️ 動画比較`)
         .setColor(0x9b59b6)
         .addFields(
-          { name: `A: ${data1.title} (${v1})`, value: `再生: ${data1.view.toLocaleString()}\nいいね: ${data1.like.toLocaleString()}` },
-          { name: `B: ${data2.title} (${v2})`, value: `再生: ${data2.view.toLocaleString()}\nいいね: ${data2.like.toLocaleString()}` },
-          { name: `🔥 結果 (A - B)`, value: `再生差: **${(data1.view - data2.view).toLocaleString()}**\nいいね差: **${(data1.like - data2.like).toLocaleString()}**` }
+          {
+            name: `A: ${data1.title} (${v1})`,
+            value: `再生: ${data1.view.toLocaleString()}\nいいね: ${data1.like.toLocaleString()}\nマイリスト: ${data1.mylist.toLocaleString()}\nコメント: ${data1.comment.toLocaleString()}` +
+              (g1 ? `\n直近${g1.spanHours}h伸び: 再生 ${utils.formatDiff(g1.view)} / いいね ${utils.formatDiff(g1.like)}` : '\n（監視外のため伸び率は算出不可）')
+          },
+          {
+            name: `B: ${data2.title} (${v2})`,
+            value: `再生: ${data2.view.toLocaleString()}\nいいね: ${data2.like.toLocaleString()}\nマイリスト: ${data2.mylist.toLocaleString()}\nコメント: ${data2.comment.toLocaleString()}` +
+              (g2 ? `\n直近${g2.spanHours}h伸び: 再生 ${utils.formatDiff(g2.view)} / いいね ${utils.formatDiff(g2.like)}` : '\n（監視外のため伸び率は算出不可）')
+          },
+          {
+            name: `🔥 累計差 (A - B)`,
+            value: `再生差: **${(data1.view - data2.view).toLocaleString()}**\nいいね差: **${(data1.like - data2.like).toLocaleString()}**\nマイリスト差: **${(data1.mylist - data2.mylist).toLocaleString()}**\nコメント差: **${(data1.comment - data2.comment).toLocaleString()}**`
+          }
         );
+
+      if (g1 && g2) {
+        const winner = g1.view === g2.view ? '互角' : (g1.view > g2.view ? 'A' : 'B');
+        embed.addFields({
+          name: `🚀 伸び率対決`,
+          value: `再生の伸びが速いのは: **${winner}**（A: ${utils.formatDiff(g1.view)} / B: ${utils.formatDiff(g2.view)}）`
+        });
+      }
+
       await interaction.editReply({ embeds: [embed] });
     }
 
@@ -462,6 +521,45 @@ client.on('interactionCreate', async interaction => {
           ? `ボカコレ監視を **有効** にしました。次回は毎時5分（JST）に実行されます。`
           : `ボカコレ監視を **無効** にしました。毎時のチェックはスキップされます（/vc_check は引き続き手動実行できます）。`
       );
+    }
+
+    else if (commandName === 'status') {
+      const os = require('os');
+      const scheduler = require('./scheduler');
+
+      const [videos, keywords, watchEnabled] = await Promise.all([
+        supabaseService.getAllVideos(),
+        supabaseService.getVocacolleKeywords(),
+        supabaseService.getVocacolleWatchEnabled()
+      ]);
+
+      const lastRun = scheduler.getSchedulerStatus();
+      const formatLastRun = (iso) => (iso ? formatJst(iso) : '（再起動後まだ未実行）');
+
+      const mem = process.memoryUsage();
+      const uptimeSec = Math.floor(process.uptime());
+      const h = Math.floor(uptimeSec / 3600);
+      const m = Math.floor((uptimeSec % 3600) / 60);
+      const s = uptimeSec % 60;
+
+      const embed = new EmbedBuilder()
+        .setTitle('🖥️ Bot稼働状況')
+        .setColor(parseInt(config.CHART_COLOR, 16))
+        .addFields(
+          { name: 'ホスト', value: os.hostname(), inline: true },
+          { name: '起動時間', value: `${h}時間${m}分${s}秒`, inline: true },
+          { name: 'メモリ (RSS)', value: `${Math.round(mem.rss / 1024 / 1024)}MB`, inline: true },
+          { name: '監視動画数', value: `${videos.length}本`, inline: true },
+          { name: 'ボカコレキーワード', value: `${keywords.length}件`, inline: true },
+          { name: 'ボカコレ監視', value: watchEnabled ? '有効' : '無効', inline: true },
+          { name: '毎時 新着/キリ番チェック 最終実行', value: formatLastRun(lastRun.updateVideoList), inline: false },
+          { name: '毎朝 デイリーレポート 最終実行', value: formatLastRun(lastRun.reportEachVideoStats), inline: false },
+          { name: 'ボカコレ監視 最終実行', value: formatLastRun(lastRun.vocacolleWatch), inline: false }
+        )
+        .setFooter({ text: config.FOOTER_TEXT })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
     }
 
     } catch (err) {

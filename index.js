@@ -48,7 +48,7 @@ app.listen(PORT, () => {
 });
 
 // グローバルな例外処理
-const { sendErrorEmbed } = require('./services/discord');
+const { sendErrorEmbed, sendNotification } = require('./services/discord');
 
 process.on('uncaughtException', async (error) => {
   console.error('Uncaught Exception:', error);
@@ -59,3 +59,21 @@ process.on('unhandledRejection', async (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   await sendErrorEmbed(reason, "🚨 Unhandled Rejection");
 });
+
+// 停止（pm2 stop/restart、Ctrl+C等）を「予期せぬクラッシュ」と区別できるよう一報する。
+// PM2側の kill_timeout(15秒) の範囲内で通知＋後片付けを終わらせる想定
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} を受信しました。シャットダウンします...`);
+  try {
+    await sendNotification(`🔴 Bot停止します（${signal}）`);
+  } catch (e) {
+    console.error('停止通知の送信に失敗しました:', e.message);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

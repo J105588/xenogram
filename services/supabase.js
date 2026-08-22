@@ -102,39 +102,18 @@ async function getYesterdayStats(videoId) {
 }
 
 /**
- * 統計情報をDBに記録（同じ日のデータがあれば上書き、なければ新規追加）
+ * 統計情報をDBに記録する。
+ *
+ * 以前は「同じ日の記録があれば上書き」で1日1行に潰していたが、
+ * 毎時実行される updateVideoList のたびに新規行を追加するように変更した。
+ * これにより video_stats は日次ではなく時間単位の履歴になり、
+ * 「直近24時間の伸び」のような、より細かい比較が可能になる。
+ * （日次グラフ等、1日1点で十分な用途は getStatsHistory 側で1日ごとに間引く）
  */
 async function recordStats(videoId, views, comments, mylists, likes) {
-  // システムのTZ（index.jsでAsia/Tokyoに設定済み）に基づき、本日の開始時刻と終了時刻を取得
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
-  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
-
-  // 1. 本日中に既に記録されたレコードがあるか検索
-  const { data: existingToday } = await supabase
+  const { error } = await supabase
     .from('video_stats')
-    .select('id')
-    .eq('video_id', videoId)
-    .gte('recorded_at', startOfDay)
-    .lte('recorded_at', endOfDay)
-    .single();
-
-  let error;
-  
-  if (existingToday) {
-    // 2. 既に存在すれば、そのレコードを最新の数値で上書きアップデートする
-    const response = await supabase
-      .from('video_stats')
-      .update({ views, comments, mylists, likes, recorded_at: new Date().toISOString() })
-      .eq('id', existingToday.id);
-    error = response.error;
-  } else {
-    // 3. まだ無ければ、新規にインサートする
-    const response = await supabase
-      .from('video_stats')
-      .insert([{ video_id: videoId, views, comments, mylists, likes }]);
-    error = response.error;
-  }
+    .insert([{ video_id: videoId, views, comments, mylists, likes }]);
 
   if (error) console.error("Error recording stats:", error);
 }
@@ -152,22 +131,54 @@ async function updateVideoInfo(videoId, tags, thumbnailUrl) {
 }
 
 /**
- * グラフ用に過去の統計を取得 (直近7回分など)
+ * グラフ・前日比用に、日次の統計履歴を取得する (直近7日分など)。
+ *
+ * video_stats は毎時1行記録されるようになったため、そのまま返すと
+ * 「日次グラフ」のつもりが「時間単位グラフ」になってしまう。
+ * ここでは各日の最後（＝最新）の記録だけを残して1日1点に間引く。
  */
 async function getStatsHistory(videoId, limit = 7) {
   const { data, error } = await supabase
     .from('video_stats')
     .select('views, recorded_at')
     .eq('video_id', videoId)
-    .order('recorded_at', { ascending: true }) // グラフ用なので古い順が扱いやすいが、一旦全て取得してから切り出すのもあり
-  
+    .order('recorded_at', { ascending: true });
+
   if (error) {
     console.error("Error getting stats history:", error);
     return [];
   }
-  
-  // 直近 limit 件だけ取得して古い順に並べる
-  return data.slice(-limit);
+
+  // 同じ日（JST）の行は後勝ちで上書きしていくことで、各日最後の値だけが残る
+  const byDay = new Map();
+  for (const row of data) {
+    const day = new Date(row.recorded_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    byDay.set(day, row);
+  }
+
+  return [...byDay.values()].slice(-limit);
+}
+
+/**
+ * グラフ等の間引きをせず、生の記録をそのまま取得する（直近N時間の伸び計算等に使う）。
+ * @param {string} videoId
+ * @param {number} hours 遡る時間数
+ */
+async function getRecentStatsHistory(videoId, hours = 24) {
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('video_stats')
+    .select('views, comments, mylists, likes, recorded_at')
+    .eq('video_id', videoId)
+    .gte('recorded_at', since)
+    .order('recorded_at', { ascending: true });
+
+  if (error) {
+    console.error("Error getting recent stats history:", error);
+    return [];
+  }
+  return data;
 }
 
 /**
@@ -383,6 +394,7 @@ module.exports = {
   recordStats,
   updateVideoInfo,
   getStatsHistory,
+  getRecentStatsHistory,
   getVocacolleKeywords,
   addVocacolleKeyword,
   removeVocacolleKeyword,
