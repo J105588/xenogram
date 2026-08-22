@@ -233,7 +233,43 @@ async function runVocacolleWatch(options = {}) {
       }
 
       embed.setFooter({ text: config.FOOTER_TEXT }).setTimestamp();
-      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files: [] });
+
+      const embedsToSend = [embed];
+      const files = [];
+
+      if (matches.length) {
+        // 1メッセージに載せられるEmbedは最大10件なので、サマリー分を除いた9件に絞る
+        const uniqueItems = [];
+        const seenWatchIds = new Set();
+        for (const { item } of matches) {
+          if (!item.watchId || seenWatchIds.has(item.watchId)) continue;
+          seenWatchIds.add(item.watchId);
+          uniqueItems.push(item);
+          if (uniqueItems.length >= 9) break;
+        }
+
+        const shots = await screenshot.captureRankingEntries({
+          url: config.VOCACOLLE.RANKING_URL,
+          watchIds: uniqueItems.map(i => i.watchId)
+        });
+
+        for (const item of uniqueItems) {
+          const shot = shots.get(item.watchId);
+          const itemEmbed = new EmbedBuilder()
+            .setTitle(`${item.rank}位: ${item.title}`)
+            .setURL(`https://www.nicovideo.jp/watch/${item.watchId}`)
+            .setColor(parseInt(config.CHART_COLOR, 16));
+
+          if (shot) {
+            const fileName = `vocacolle_summary_${item.watchId}.png`;
+            files.push({ buffer: shot.buffer, name: fileName });
+            itemEmbed.setImage(`attachment://${fileName}`);
+          }
+          embedsToSend.push(itemEmbed);
+        }
+      }
+
+      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embeds: embedsToSend, files });
     }
 
     return { checked: ranking.items.length, hits: matches.length, notified: 0, rankingTitle: ranking.title };

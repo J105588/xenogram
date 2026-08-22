@@ -500,16 +500,23 @@ async function sendNotification(embedOrText) {
 }
 
 /**
- * 任意のチャンネルへ Embed と添付ファイルを送る（ボカコレ通知用）
+ * 任意のチャンネルへ Embed（複数可）と添付ファイルを送る（ボカコレ通知用）
  * @param {object} params
  * @param {string} params.channelId 送信先チャンネルID
- * @param {EmbedBuilder} params.embed 送信するEmbed
- * @param {Array<{buffer: Buffer, name: string}>} [params.files] 添付ファイル
+ * @param {EmbedBuilder} [params.embed] 単一のEmbedを送る場合
+ * @param {EmbedBuilder[]} [params.embeds] 複数のEmbedを1メッセージにまとめて送る場合
+ * @param {Array<{buffer: Buffer, name: string}>} [params.files] 添付ファイル（各Embedから attachment://ファイル名 で参照できる）
  */
-async function sendEmbedWithFiles({ channelId, embed, files = [] }) {
+async function sendEmbedWithFiles({ channelId, embed, embeds, files = [] }) {
   const targetId = channelId || config.DISCORD.CHANNEL_ID;
   if (!targetId) {
     console.error("[ERROR] 送信先チャンネルIDが設定されていません。");
+    return false;
+  }
+
+  const embedList = embeds || (embed ? [embed] : []);
+  if (!embedList.length) {
+    console.error("[ERROR] 送信するEmbedがありません。");
     return false;
   }
 
@@ -521,7 +528,7 @@ async function sendEmbedWithFiles({ channelId, embed, files = [] }) {
     }
 
     const attachments = files.map(f => new AttachmentBuilder(f.buffer, { name: f.name }));
-    await channel.send({ embeds: [embed], files: attachments });
+    await channel.send({ embeds: embedList, files: attachments });
     return true;
   } catch (error) {
     console.error("[ERROR] Failed to send embed with files:", error);
