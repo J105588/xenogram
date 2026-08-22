@@ -109,7 +109,13 @@ async function captureRankingEntries({ url, watchIds = [] }) {
     });
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'ja-JP,ja;q=0.9' });
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: config.SCREENSHOT.TIMEOUT_MS });
+    // 'networkidle2' は広告やアクセス解析タグ等の継続的な通信で成立しないことがあり、
+    // 低スペック環境（Render等）ではしばしばタイムアウトしてバッチ全体が失敗する。
+    // 実際に必要な要素の出現はこの後 waitForSelector で個別に待っているため、
+    // ここでは軽い 'domcontentloaded' に留め、失敗しても握りつぶして先へ進める。
+    await page
+      .goto(url, { waitUntil: 'domcontentloaded', timeout: config.SCREENSHOT.TIMEOUT_MS })
+      .catch((e) => console.warn('[VOCACOLLE] ページ遷移が完全には終わりませんでした（続行します）:', e.message));
     await dismissOverlays(page);
 
     // ランキング一覧はクライアント側で描画されるため、動画リンクが出るまで待つ
