@@ -170,8 +170,28 @@ async function reportEachVideoStats() {
  *   （Chromium起動が毎時走り続けてRenderのメモリ上限を超え、自動再起動を起こしたため）。
  * @returns {Promise<{checked: number, hits: number, notified: number, rankingTitle: string, skipped?: string}>}
  */
+let vocacolleWatchInFlight = false;
+
 async function runVocacolleWatch(options = {}) {
   const { force = false, bypassToggle = false, notifySummary = false, summaryScreenshot = false } = options;
+
+  // 毎時の自動実行と手動 /vc_check が重なると、前のChromiumが終了しきる前に
+  // 次のChromiumが起動し、メモリが積み上がってRenderのメモリ上限を超えて
+  // 落ちる原因になっていた。同時に1本しか走らせないようにする。
+  if (vocacolleWatchInFlight) {
+    console.warn("[VOCACOLLE] 前回の実行がまだ完了していないため、今回はスキップします");
+    return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'already_running' };
+  }
+  vocacolleWatchInFlight = true;
+
+  try {
+    return await runVocacolleWatchInner({ force, bypassToggle, notifySummary, summaryScreenshot });
+  } finally {
+    vocacolleWatchInFlight = false;
+  }
+}
+
+async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summaryScreenshot }) {
   console.log("Running vocacolle ranking watch...");
 
   if (!bypassToggle) {

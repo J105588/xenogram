@@ -1,6 +1,6 @@
 const axios = require('axios');
 const config = require('../config');
-const { launchBrowser } = require('./browser');
+const { launchBrowser, closeBrowserSafely } = require('./browser');
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -69,7 +69,7 @@ async function resolveRankingSource(url, { timeoutMs = 20000 } = {}) {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs }).catch(() => {});
     return await found;
   } finally {
-    if (browser) await browser.close().catch(() => {});
+    await closeBrowserSafely(browser);
   }
 }
 

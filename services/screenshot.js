@@ -1,5 +1,5 @@
 const config = require('../config');
-const { launchBrowser } = require('./browser');
+const { launchBrowser, closeBrowserSafely } = require('./browser');
 
 const HIGHLIGHT_COLOR = '#3498db';
 
@@ -145,7 +145,7 @@ async function captureRankingEntries({ url, watchIds = [] }) {
   } catch (error) {
     console.error('[VOCACOLLE] スクリーンショット処理でエラーが発生しました:', error.message);
   } finally {
-    if (browser) await browser.close().catch(() => {});
+    await closeBrowserSafely(browser);
   }
 
   return results;

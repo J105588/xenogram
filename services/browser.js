@@ -42,4 +42,29 @@ async function launchBrowser(options = {}) {
   return getPuppeteer().launch(opts);
 }
 
-module.exports = { launchBrowser };
+/**
+ * ブラウザを確実に終了する。
+ * browser.close() が（Renderの遅いCPU等で）ハングすると、
+ * 次の呼び出し時に前のChromiumプロセスが残ったまま新しいものが起動し、
+ * メモリが積み上がって上限超過（自動再起動）につながる。
+ * 一定時間で応答が無ければプロセスを強制終了して確実に解放する。
+ */
+async function closeBrowserSafely(browser, timeoutMs = 8000) {
+  if (!browser) return;
+  try {
+    await Promise.race([
+      browser.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('browser.close() timed out')), timeoutMs)),
+    ]);
+  } catch (error) {
+    console.warn('[BROWSER] close()が完了しなかったため強制終了します:', error.message);
+    try {
+      const proc = browser.process();
+      if (proc && !proc.killed) proc.kill('SIGKILL');
+    } catch (killError) {
+      console.error('[BROWSER] 強制終了にも失敗しました:', killError.message);
+    }
+  }
+}
+
+module.exports = { launchBrowser, closeBrowserSafely };

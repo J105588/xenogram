@@ -437,7 +437,9 @@ client.on('interactionCreate', async interaction => {
       // notifySummary: true にして、新規ヒットが無い場合でも定期実行と同じ
       // スクショ付きサマリーがチャンネルに届くようにする（手動確認の見た目を統一）
       const result = await scheduler.runVocacolleWatch({ bypassToggle: true, notifySummary: true, summaryScreenshot: true });
-      if (result.skipped === 'no_keywords') {
+      if (result.skipped === 'already_running') {
+        await interaction.followUp("前回の確認処理がまだ終わっていません。少し待ってからもう一度お試しください（連続実行はメモリ超過の原因になるため制限しています）。");
+      } else if (result.skipped === 'no_keywords') {
         await interaction.followUp("監視キーワードが1件も登録されていません。/vc_add で登録してください。");
       } else {
         await interaction.followUp(
