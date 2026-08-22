@@ -20,7 +20,7 @@ module.exports = {
     GUILD_ID: process.env.DISCORD_GUILD_ID, // 開発用
     CHANNEL_ID: process.env.DISCORD_CHANNEL_ID, // 通知を送信するチャンネルID
   },
-  PORT: process.env.PORT || 3000,
+  PORT: process.env.PORT || 47810,
 
   // ボカコレ（VOCALOID COLLECTION）ランキング監視
   //
