@@ -165,10 +165,13 @@ async function reportEachVideoStats() {
  * @param {boolean} [options.force] true なら通知済みでも再通知する（手動確認用）
  * @param {boolean} [options.bypassToggle] true なら /vc_toggle off で無効化中でも実行する（/vc_check 用）
  * @param {boolean} [options.notifySummary] true なら新規ヒットが無くてもチェック結果をチャンネルに通知する（定期実行用）
+ * @param {boolean} [options.summaryScreenshot] true ならサマリーにもスクショを付ける。
+ *   人が明示的に叩く /vc_check 専用。毎時の自動実行では絶対に true にしない
+ *   （Chromium起動が毎時走り続けてRenderのメモリ上限を超え、自動再起動を起こしたため）。
  * @returns {Promise<{checked: number, hits: number, notified: number, rankingTitle: string, skipped?: string}>}
  */
 async function runVocacolleWatch(options = {}) {
-  const { force = false, bypassToggle = false, notifySummary = false } = options;
+  const { force = false, bypassToggle = false, notifySummary = false, summaryScreenshot = false } = options;
   console.log("Running vocacolle ranking watch...");
 
   if (!bypassToggle) {
@@ -234,12 +237,47 @@ async function runVocacolleWatch(options = {}) {
 
       embed.setFooter({ text: config.FOOTER_TEXT }).setTimestamp();
 
-      // 定期サマリーは意図的にテキストのみ（数値は毎回最新）。
+      // 定期サマリー（毎時の自動実行）は意図的にテキストのみ（数値は毎回最新）。
       // 新規ヒットでなくても毎時スクリーンショットまで撮る形にしたところ、
       // Chromium起動が「稀な新規ヒット時のみ」から「アクティブな該当曲がある限り毎時」に
       // 増えてしまい、Renderのメモリ上限超過（自動再起動）を引き起こしたため撤回した。
-      // スクショは引き続き、下の新規ヒット時（pending.length > 0）のときだけ撮る。
-      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files: [] });
+      // /vc_check（人が明示的に叩く手動確認）だけは summaryScreenshot=true で呼ばれ、
+      // 毎時ループする心配が無いためスクショ付きで見られるようにする。
+      const embedsToSend = [embed];
+      const files = [];
+
+      if (summaryScreenshot && matches.length) {
+        const uniqueItems = [];
+        const seenWatchIds = new Set();
+        for (const { item } of matches) {
+          if (!item.watchId || seenWatchIds.has(item.watchId)) continue;
+          seenWatchIds.add(item.watchId);
+          uniqueItems.push(item);
+          if (uniqueItems.length >= 5) break; // 手動確認用途なので控えめに
+        }
+
+        const shots = await screenshot.captureRankingEntries({
+          url: config.VOCACOLLE.RANKING_URL,
+          watchIds: uniqueItems.map(i => i.watchId)
+        });
+
+        for (const item of uniqueItems) {
+          const shot = shots.get(item.watchId);
+          const itemEmbed = new EmbedBuilder()
+            .setTitle(`${item.rank}位: ${item.title}`)
+            .setURL(`https://www.nicovideo.jp/watch/${item.watchId}`)
+            .setColor(parseInt(config.CHART_COLOR, 16));
+
+          if (shot) {
+            const fileName = `vocacolle_summary_${item.watchId}.png`;
+            files.push({ buffer: shot.buffer, name: fileName });
+            itemEmbed.setImage(`attachment://${fileName}`);
+          }
+          embedsToSend.push(itemEmbed);
+        }
+      }
+
+      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embeds: embedsToSend, files });
     }
 
     return { checked: ranking.items.length, hits: matches.length, notified: 0, rankingTitle: ranking.title };
