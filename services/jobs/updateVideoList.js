@@ -1,6 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const niconico = require('../niconico');
-const supabaseService = require('../supabase');
+const dbService = require('../database');
 const discordService = require('../discord');
 const utils = require('../../utils');
 const config = require('../../config');
@@ -12,15 +12,19 @@ const spikeLastNotifiedAt = new Map();
 
 /**
  * 直近1時間の再生数の伸びが閾値を超えていたら「急上昇中」として通知する。
- * 同じ動画への連続通知は SPIKE_DETECTION.COOLDOWN_HOURS の間は抑制する。
+ * 同じ動画への連続通知は spike_cooldown_hours 設定の間は抑制する。
+ * 閾値・クールダウンは /set_spike で変更可能（未設定なら環境変数のデフォルト値）。
  */
 async function checkSpike(video, oldViews, newViews) {
   if (!config.SPIKE_DETECTION.ENABLED) return;
+  const threshold = dbService.getSetting('spike_view_threshold_per_hour');
+  const cooldownHours = dbService.getSetting('spike_cooldown_hours');
+
   const growth = newViews - oldViews;
-  if (growth < config.SPIKE_DETECTION.VIEW_THRESHOLD_PER_HOUR) return;
+  if (growth < threshold) return;
 
   const lastNotified = spikeLastNotifiedAt.get(video.id);
-  const cooldownMs = config.SPIKE_DETECTION.COOLDOWN_HOURS * 60 * 60 * 1000;
+  const cooldownMs = cooldownHours * 60 * 60 * 1000;
   if (lastNotified && Date.now() - lastNotified < cooldownMs) return;
 
   spikeLastNotifiedAt.set(video.id, Date.now());
@@ -57,16 +61,16 @@ async function updateVideoList() {
     const link = item.link;
     const videoId = link.split("/").pop().split("?")[0].trim();
 
-    const exists = await supabaseService.hasVideo(videoId);
+    const exists = await dbService.hasVideo(videoId);
     if (!exists) {
       console.log(`New video detected: ${videoId}`);
       // 詳細データを取得（タグ情報は一括APIに無いため、新着1件だけは個別APIで取る）
       const apiData = await niconico.fetchNicoData(videoId);
       if (apiData) {
         // 1. 動画マスター情報の追加 (投稿日時を含める)
-        await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
+        await dbService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
         // 2. 初回の初期統計データの登録
-        await supabaseService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
+        await dbService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
 
         const embed = new EmbedBuilder()
           .setTitle("🎉 New Upload Detected!")
@@ -82,7 +86,7 @@ async function updateVideoList() {
   }
 
   // 2. マイルストーンチェック（全動画の現在の数値をチェックし、前回記録時と比べてキリ番を跨いでいたら通知）
-  const videos = await supabaseService.getAllVideos();
+  const videos = await dbService.getAllVideos();
   for (const video of videos) {
     try {
       // 監視対象ユーザー自身の動画なら一括取得済みのデータを使い、
@@ -93,7 +97,7 @@ async function updateVideoList() {
         : await niconico.fetchNicoData(video.id);
       if (!apiData) continue;
 
-      const latestDbStats = await supabaseService.getLatestStats(video.id);
+      const latestDbStats = await dbService.getLatestStats(video.id);
       if (latestDbStats) {
         const statsToCheck = [
           { name: '再生', oldVal: latestDbStats.views, newVal: apiData.view, color: 0x3498db },
@@ -103,7 +107,7 @@ async function updateVideoList() {
         ];
 
         for (const stat of statsToCheck) {
-          const crossed = utils.checkMilestone(stat.oldVal, stat.newVal, config.MILESTONE_STEP);
+          const crossed = utils.checkMilestone(stat.oldVal, stat.newVal, dbService.getSetting('milestone_step'));
           if (crossed) {
             await discordService.sendNotification(
               new EmbedBuilder()
@@ -125,11 +129,11 @@ async function updateVideoList() {
       // 「タグが変わった」と誤検知して意味のない上書きをしないようにする。
       const newTags = apiData.tags !== undefined ? apiData.tags : video.tags;
       if (video.tags !== newTags || video.thumbnail_url !== apiData.thumbnail) {
-        await supabaseService.updateVideoInfo(video.id, newTags, apiData.thumbnail);
+        await dbService.updateVideoInfo(video.id, newTags, apiData.thumbnail);
       }
 
       // 重要: 現在の数値をDBに記録して最新スナップショットとして保存する
-      await supabaseService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
+      await dbService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
     } catch (videoUpdateErr) {
       console.error(`❌ Error updating video ${video.id} in background schedule:`, videoUpdateErr);
     }

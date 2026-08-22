@@ -83,7 +83,56 @@ const commands = [
       ]
     }]
   },
-  { name: 'status', description: 'Botの稼働状況（起動時間・メモリ・各定期ジョブの最終実行）を表示します。' }
+  { name: 'status', description: 'Botの稼働状況（起動時間・メモリ・各定期ジョブの最終実行）を表示します。' },
+  {
+    name: 'user_add',
+    description: '【管理者】監視対象のニコニコユーザーIDを追加します（複数ユーザー監視）。',
+    options: [
+      { name: 'user_id', type: 3, description: 'ニコニコのユーザーID（数字）', required: true },
+      { name: 'label', type: 3, description: '識別用のメモ（任意）', required: false }
+    ]
+  },
+  {
+    name: 'user_remove',
+    description: '【管理者】監視対象のニコニコユーザーIDを削除します。',
+    options: [{ name: 'user_id', type: 3, description: 'ニコニコのユーザーID', required: true }]
+  },
+  { name: 'user_list', description: '現在監視中のニコニコユーザーID一覧を表示します。' },
+  {
+    name: 'set_milestone',
+    description: '【管理者】マイルストーン（キリ番）の判定単位を変更します。',
+    options: [{ name: 'step', type: 4, description: '例: 100, 1000', required: true }]
+  },
+  {
+    name: 'set_spike',
+    description: '【管理者】急上昇検知のしきい値を変更します。',
+    options: [
+      { name: 'threshold', type: 4, description: '1時間あたりこの再生数以上で急上昇と判定', required: true },
+      { name: 'cooldown_hours', type: 4, description: '同じ動画への再通知までの間隔（時間）', required: false }
+    ]
+  },
+  {
+    name: 'set_rank_threshold',
+    description: '【管理者】ボカコレ順位変動通知のしきい値を変更します。',
+    options: [{ name: 'positions', type: 4, description: 'この順位差以上動いたら通知', required: true }]
+  },
+  {
+    name: 'set_schedule',
+    description: '【管理者】各定期ジョブの実行時刻（cron式）を変更します（再起動不要）。',
+    options: [
+      {
+        name: 'job', type: 3, description: '対象ジョブ', required: true,
+        choices: [
+          { name: '毎時 新着/キリ番/急上昇チェック', value: 'update_video_list' },
+          { name: 'デイリーレポート', value: 'daily_report' },
+          { name: 'ボカコレ/ランキング監視', value: 'vocacolle_watch' },
+          { name: '週次まとめレポート', value: 'weekly_report' }
+        ]
+      },
+      { name: 'cron', type: 3, description: 'cron式 (例: "5 * * * *" = 毎時5分)', required: true }
+    ]
+  },
+  { name: 'settings', description: '現在のマイルストーン・急上昇・実行スケジュール等の設定値を一覧表示します。' }
 ];
 
 async function registerCommands() {

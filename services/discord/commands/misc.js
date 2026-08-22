@@ -1,16 +1,41 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../../../config');
-const supabaseService = require('../../supabase');
+const dbService = require('../../database');
 const { commands } = require('../definitions');
 const { formatJst } = require('../format');
+
+// コマンド名の接頭辞でカテゴリ分けして表示する（27個を並べるだけだと探しにくいため）
+const CATEGORIES = [
+  { label: '📺 動画の監視', match: (n) => ['stats', 'list', 'add', 'remove', 'compare', 'ranking', 'growth', 'upcoming', 'export'].includes(n) },
+  { label: '🎯 ボカコレ/ランキング監視', match: (n) => n.startsWith('vc_') },
+  { label: '📡 監視対象ユーザー（複数のニコニコアカウントを追う）', match: (n) => n.startsWith('user_') },
+  { label: '⚙️ 動作の細かい調整', match: (n) => n.startsWith('set_') || n === 'settings' },
+  { label: '🔧 管理・実行', match: (n) => ['force_update', 'daily_report', 'status'].includes(n) },
+  { label: 'その他', match: () => true },
+];
 
 async function help(interaction) {
   const embed = new EmbedBuilder()
     .setTitle('📚 XENOGRAM Analytics Bot Commands')
-    .setColor(parseInt(config.CHART_COLOR, 16));
-  let desc = "";
-  commands.forEach(cmd => { desc += `**\`/${cmd.name}\`** : ${cmd.description}\n`; });
-  embed.setDescription(desc);
+    .setColor(parseInt(config.CHART_COLOR, 16))
+    .setDescription(
+      '自分（XENOGRAM）以外のニコニコアカウントも監視したい場合は `/user_add` で追加できます（複数人を同時監視可能）。\n' +
+      'マイルストーンの刻み幅・急上昇のしきい値・各定期チェックの実行時刻は `/settings` で確認、`/set_milestone` `/set_spike` `/set_rank_threshold` `/set_schedule` で変更できます（再起動不要）。'
+    );
+
+  const remaining = [...commands];
+  for (const category of CATEGORIES) {
+    const inCategory = remaining.filter(cmd => category.match(cmd.name));
+    if (!inCategory.length) continue;
+    const value = inCategory.map(cmd => `**\`/${cmd.name}\`** : ${cmd.description}`).join('\n');
+    embed.addFields({ name: category.label, value, inline: false });
+    // 一度カテゴリに割り当てたコマンドは以降の判定から除く
+    for (const cmd of inCategory) {
+      const idx = remaining.indexOf(cmd);
+      if (idx !== -1) remaining.splice(idx, 1);
+    }
+  }
+
   await interaction.editReply({ embeds: [embed] });
 }
 
@@ -24,9 +49,9 @@ async function status(interaction) {
   const scheduler = require('../../scheduler');
 
   const [videos, keywords, watchEnabled] = await Promise.all([
-    supabaseService.getAllVideos(),
-    supabaseService.getVocacolleKeywords(),
-    supabaseService.getVocacolleWatchEnabled()
+    dbService.getAllVideos(),
+    dbService.getVocacolleKeywords(),
+    dbService.getVocacolleWatchEnabled()
   ]);
 
   const lastRun = scheduler.getSchedulerStatus();

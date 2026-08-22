@@ -1,7 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const vocacolle = require('../vocacolle');
 const screenshot = require('../screenshot');
-const supabaseService = require('../supabase');
+const dbService = require('../database');
 const discordService = require('../discord');
 const config = require('../../config');
 const { markRun } = require('./status');
@@ -16,11 +16,11 @@ async function checkRankChanges(matches, ranking) {
   for (const { keyword, item } of matches) {
     if (!item.watchId) continue;
 
-    const prevRank = await supabaseService.getVocacolleDetectionRank(keyword.id, ranking.pageId, item.watchId);
+    const prevRank = await dbService.getVocacolleDetectionRank(keyword.id, ranking.pageId, item.watchId);
     if (prevRank === null) continue; // 新規ヒットでまだ記録が無い
 
     const delta = prevRank - item.rank; // 正: 順位上昇（数字が小さくなった）, 負: 順位下降
-    if (Math.abs(delta) >= config.VOCACOLLE.RANK_CHANGE_THRESHOLD) {
+    if (Math.abs(delta) >= dbService.getSetting('vocacolle_rank_change_threshold')) {
       const direction = delta > 0 ? '上昇' : '下降';
       const arrow = delta > 0 ? '🔺' : '🔻';
       const embed = new EmbedBuilder()
@@ -40,7 +40,7 @@ async function checkRankChanges(matches, ranking) {
       await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files: [] });
     }
 
-    await supabaseService.touchVocacolleDetection(keyword.id, ranking.pageId, item.watchId, {
+    await dbService.touchVocacolleDetection(keyword.id, ranking.pageId, item.watchId, {
       rank: item.rank,
       view: item.view,
     });
@@ -55,8 +55,8 @@ async function checkRankChanges(matches, ranking) {
  */
 async function checkOnePage(url, keywords, { force, notifySummary, summaryScreenshot }) {
   const ranking = await vocacolle.fetchRanking(url, {
-    getCachedSource: (pageId) => supabaseService.getVocacolleRankingSource(pageId),
-    setCachedSource: (pageId, source) => supabaseService.upsertVocacolleRankingSource(pageId, source)
+    getCachedSource: (pageId) => dbService.getVocacolleRankingSource(pageId),
+    setCachedSource: (pageId, source) => dbService.upsertVocacolleRankingSource(pageId, source)
   });
   const now = new Date();
   const activeCount = keywords.filter(k => vocacolle.isActive(k, now)).length;
@@ -64,162 +64,160 @@ async function checkOnePage(url, keywords, { force, notifySummary, summaryScreen
 
   const matches = vocacolle.findMatches(ranking, keywords, now);
 
-  // 既に通知済みの組み合わせを除外する
+  // 新規（まだ通知していない）ものと、既に通知済みで継続中のものに分ける。
+  // 以前は新規が1件でもあると継続分の処理を丸ごとスキップしてしまい、
+  // 「新規と継続が同時に出た回は継続分に何も通知が飛ばない」不具合があったため、
+  // 新規・継続の両方を必ず処理する構造にしている。
   const pending = [];
+  const continuing = [];
   for (const match of matches) {
     if (!force) {
-      const already = await supabaseService.hasVocacolleDetection(match.keyword.id, ranking.pageId, match.item.watchId);
-      if (already) continue;
+      const already = await dbService.hasVocacolleDetection(match.keyword.id, ranking.pageId, match.item.watchId);
+      if (already) {
+        continuing.push(match);
+        continue;
+      }
     }
     pending.push(match);
   }
 
-  if (!pending.length) {
-    console.log(`[VOCACOLLE] 新規のヒットはありません（ヒット総数 ${matches.length}件）`);
+  console.log(`[VOCACOLLE] ヒット総数 ${matches.length}件（新規 ${pending.length}件 / 継続 ${continuing.length}件）`);
 
-    // 継続中のヒットについて、順位が大きく動いていれば個別に通知する
-    if (matches.length && !force) {
-      await checkRankChanges(matches, ranking);
-    }
-
-    if (notifySummary) {
-      const embed = new EmbedBuilder()
-        .setTitle('ボカコレ監視 定期チェック')
-        .setColor(parseInt(config.CHART_COLOR, 16))
-        .setDescription(ranking.title)
-        .addFields(
-          { name: '順位表', value: `${ranking.items.length}件`, inline: true },
-          { name: '有効キーワード', value: `${activeCount}件`, inline: true },
-          { name: 'ヒット', value: `${matches.length}件（新規: 0件）`, inline: true }
-        );
-
-      if (matches.length) {
-        // 新規ではなくても、現在該当している曲の最新の順位・数値を毎回出す
-        const lines = matches.map(({ keyword, item }) => {
-          const targetLabel = keyword.target === 'artist' ? 'アーティスト名' : '曲名';
-          return `**${item.rank}位** [${item.title}](https://www.nicovideo.jp/watch/${item.watchId}) / ${item.artist}\n　再生 ${item.view.toLocaleString()}・いいね ${item.like.toLocaleString()}（一致: ${targetLabel} \`${keyword.keyword}\`）`;
-        });
-        let listText = lines.join('\n');
-        if (listText.length > 1000) listText = listText.slice(0, 950) + '\n... (省略されました)';
-        embed.addFields({ name: '現在の該当曲（最新の数値）', value: listText, inline: false });
-      } else {
-        embed.addFields({ name: '現在の該当曲', value: '現在ヒットしているものはありません。', inline: false });
-      }
-
-      embed.setFooter({ text: config.FOOTER_TEXT }).setTimestamp();
-
-      // 定期サマリー・手動確認のどちらでも、該当曲があればスクショを添える。
-      // Discordの1メッセージあたりEmbed上限が10件なので、サマリー分を除いた9件が上限。
-      const embedsToSend = [embed];
-      const files = [];
-
-      if (summaryScreenshot && matches.length) {
-        const uniqueItems = [];
-        const seenWatchIds = new Set();
-        for (const { item } of matches) {
-          if (!item.watchId || seenWatchIds.has(item.watchId)) continue;
-          seenWatchIds.add(item.watchId);
-          uniqueItems.push(item);
-          if (uniqueItems.length >= 9) break;
-        }
-
-        const shots = await screenshot.captureRankingEntries({
-          url,
-          watchIds: uniqueItems.map(i => i.watchId)
-        });
-
-        for (const item of uniqueItems) {
-          const shot = shots.get(item.watchId);
-          const itemEmbed = new EmbedBuilder()
-            .setTitle(`${item.rank}位: ${item.title}`)
-            .setURL(`https://www.nicovideo.jp/watch/${item.watchId}`)
-            .setColor(parseInt(config.CHART_COLOR, 16));
-
-          if (shot) {
-            const fileName = `vocacolle_summary_${item.watchId}.png`;
-            files.push({ buffer: shot.buffer, name: fileName });
-            itemEmbed.setImage(`attachment://${fileName}`);
-          }
-          embedsToSend.push(itemEmbed);
-        }
-      }
-
-      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embeds: embedsToSend, files });
-    }
-
-    return { checked: ranking.items.length, hits: matches.length, notified: 0, rankingTitle: ranking.title };
+  // 継続中のヒットは、新規の有無に関わらず毎回順位変動をチェックする
+  if (continuing.length && !force) {
+    await checkRankChanges(continuing, ranking);
   }
-
-  // 重複する動画は1回だけ撮影する
-  const uniqueWatchIds = [...new Set(pending.map(m => m.item.watchId).filter(Boolean))];
-  const shots = await screenshot.captureRankingEntries({
-    url,
-    watchIds: uniqueWatchIds
-  });
 
   let notified = 0;
 
-  for (const { keyword, item } of pending) {
-    try {
-      const shot = shots.get(item.watchId);
-      const targetLabel = keyword.target === 'artist' ? 'アーティスト名' : '曲名';
+  // 新規ヒット: リッチな個別通知（スクショ付き）
+  if (pending.length) {
+    const uniqueWatchIds = [...new Set(pending.map(m => m.item.watchId).filter(Boolean))];
+    const shots = await screenshot.captureRankingEntries({ url, watchIds: uniqueWatchIds });
 
-      const embed = new EmbedBuilder()
-        .setTitle(`ボカコレ ${ranking.title}ランキング ${item.rank}位 で検知`)
-        .setURL(item.watchId ? `https://www.nicovideo.jp/watch/${item.watchId}` : ranking.url)
-        .setColor(parseInt(config.CHART_COLOR, 16))
-        .setDescription(`**${item.title}**\n${item.artist}`)
-        .addFields(
-          { name: "順位", value: `**${item.rank}** / ${ranking.items.length}`, inline: true },
-          { name: "再生", value: item.view.toLocaleString(), inline: true },
-          { name: "いいね", value: item.like.toLocaleString(), inline: true },
-          { name: "マイリスト", value: item.mylist.toLocaleString(), inline: true },
-          { name: "コメント", value: item.comment.toLocaleString(), inline: true },
-          { name: "一致条件", value: `${targetLabel}: \`${keyword.keyword}\``, inline: true }
-        )
-        .setFooter({ text: config.FOOTER_TEXT })
-        .setTimestamp();
+    for (const { keyword, item } of pending) {
+      try {
+        const shot = shots.get(item.watchId);
+        const targetLabel = keyword.target === 'artist' ? 'アーティスト名' : '曲名';
 
-      if (item.thumbnail) embed.setThumbnail(item.thumbnail);
+        const embed = new EmbedBuilder()
+          .setTitle(`ボカコレ ${ranking.title}ランキング ${item.rank}位 で検知`)
+          .setURL(item.watchId ? `https://www.nicovideo.jp/watch/${item.watchId}` : ranking.url)
+          .setColor(parseInt(config.CHART_COLOR, 16))
+          .setDescription(`**${item.title}**\n${item.artist}`)
+          .addFields(
+            { name: "順位", value: `**${item.rank}** / ${ranking.items.length}`, inline: true },
+            { name: "再生", value: item.view.toLocaleString(), inline: true },
+            { name: "いいね", value: item.like.toLocaleString(), inline: true },
+            { name: "マイリスト", value: item.mylist.toLocaleString(), inline: true },
+            { name: "コメント", value: item.comment.toLocaleString(), inline: true },
+            { name: "一致条件", value: `${targetLabel}: \`${keyword.keyword}\``, inline: true }
+          )
+          .setFooter({ text: config.FOOTER_TEXT })
+          .setTimestamp();
 
-      const files = [];
-      if (shot) {
-        const fileName = `vocacolle_${item.watchId || 'ranking'}.png`;
-        files.push({ buffer: shot.buffer, name: fileName });
-        embed.setImage(`attachment://${fileName}`);
-      } else {
-        embed.addFields({ name: "注意", value: "スクリーンショットの取得に失敗しました。", inline: false });
+        if (item.thumbnail) embed.setThumbnail(item.thumbnail);
+
+        const files = [];
+        if (shot) {
+          const fileName = `vocacolle_${item.watchId || 'ranking'}.png`;
+          files.push({ buffer: shot.buffer, name: fileName });
+          embed.setImage(`attachment://${fileName}`);
+        } else {
+          embed.addFields({ name: "注意", value: "スクリーンショットの取得に失敗しました。", inline: false });
+        }
+
+        const sent = await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files });
+        if (sent) notified += 1;
+
+        if (!force) {
+          await dbService.recordVocacolleDetection({
+            keywordId: keyword.id,
+            pageId: ranking.pageId,
+            watchId: item.watchId,
+            matchedKeyword: keyword.keyword,
+            matchedTarget: keyword.target,
+            rank: item.rank,
+            title: item.title,
+            artist: item.artist,
+            view: item.view,
+            screenshotOk: !!shot
+          });
+        }
+      } catch (itemError) {
+        // 1件失敗しても残りの通知は続行する
+        console.error(`[VOCACOLLE] ${item.watchId} の通知処理に失敗しました:`, itemError);
       }
-
-      const sent = await discordService.sendEmbedWithFiles({
-        channelId: config.VOCACOLLE.CHANNEL_ID,
-        embed,
-        files
-      });
-
-      if (sent) notified += 1;
-
-      if (!force) {
-        await supabaseService.recordVocacolleDetection({
-          keywordId: keyword.id,
-          pageId: ranking.pageId,
-          watchId: item.watchId,
-          matchedKeyword: keyword.keyword,
-          matchedTarget: keyword.target,
-          rank: item.rank,
-          title: item.title,
-          artist: item.artist,
-          view: item.view,
-          screenshotOk: !!shot
-        });
-      }
-    } catch (itemError) {
-      // 1件失敗しても残りの通知は続行する
-      console.error(`[VOCACOLLE] ${item.watchId} の通知処理に失敗しました:`, itemError);
     }
+
+    console.log(`[VOCACOLLE] 新規 ${notified}件を通知しました`);
   }
 
-  console.log(`[VOCACOLLE] ${notified}件を通知しました`);
+  // 定期サマリー: 新規ヒットは既に個別通知済みなので、ここでは継続中の分だけ最新値を出す
+  // （二重表示を避けるため）。新規のみで継続が0件の場合も、その旨を明記する。
+  if (notifySummary) {
+    const embed = new EmbedBuilder()
+      .setTitle('ボカコレ監視 定期チェック')
+      .setColor(parseInt(config.CHART_COLOR, 16))
+      .setDescription(ranking.title)
+      .addFields(
+        { name: '順位表', value: `${ranking.items.length}件`, inline: true },
+        { name: '有効キーワード', value: `${activeCount}件`, inline: true },
+        { name: 'ヒット', value: `${matches.length}件（新規: ${pending.length}件・上で個別通知済み）`, inline: true }
+      );
+
+    if (continuing.length) {
+      const lines = continuing.map(({ keyword, item }) => {
+        const targetLabel = keyword.target === 'artist' ? 'アーティスト名' : '曲名';
+        return `**${item.rank}位** [${item.title}](https://www.nicovideo.jp/watch/${item.watchId}) / ${item.artist}\n　再生 ${item.view.toLocaleString()}・いいね ${item.like.toLocaleString()}（一致: ${targetLabel} \`${keyword.keyword}\`）`;
+      });
+      let listText = lines.join('\n');
+      if (listText.length > 1000) listText = listText.slice(0, 950) + '\n... (省略されました)';
+      embed.addFields({ name: '継続中の該当曲（最新の数値）', value: listText, inline: false });
+    } else {
+      embed.addFields({ name: '継続中の該当曲', value: matches.length ? '今回は新規のみでした。' : '現在ヒットしているものはありません。', inline: false });
+    }
+
+    embed.setFooter({ text: config.FOOTER_TEXT }).setTimestamp();
+
+    // Discordの1メッセージあたりEmbed上限が10件なので、サマリー分を除いた9件が上限。
+    const embedsToSend = [embed];
+    const files = [];
+
+    if (summaryScreenshot && continuing.length) {
+      const uniqueItems = [];
+      const seenWatchIds = new Set();
+      for (const { item } of continuing) {
+        if (!item.watchId || seenWatchIds.has(item.watchId)) continue;
+        seenWatchIds.add(item.watchId);
+        uniqueItems.push(item);
+        if (uniqueItems.length >= 9) break;
+      }
+
+      const shots = await screenshot.captureRankingEntries({
+        url,
+        watchIds: uniqueItems.map(i => i.watchId)
+      });
+
+      for (const item of uniqueItems) {
+        const shot = shots.get(item.watchId);
+        const itemEmbed = new EmbedBuilder()
+          .setTitle(`${item.rank}位: ${item.title}`)
+          .setURL(`https://www.nicovideo.jp/watch/${item.watchId}`)
+          .setColor(parseInt(config.CHART_COLOR, 16));
+
+        if (shot) {
+          const fileName = `vocacolle_summary_${item.watchId}.png`;
+          files.push({ buffer: shot.buffer, name: fileName });
+          itemEmbed.setImage(`attachment://${fileName}`);
+        }
+        embedsToSend.push(itemEmbed);
+      }
+    }
+
+    await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embeds: embedsToSend, files });
+  }
+
   return { checked: ranking.items.length, hits: matches.length, notified, rankingTitle: ranking.title };
 }
 
@@ -260,14 +258,14 @@ async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summ
   console.log("Running vocacolle ranking watch...");
 
   if (!bypassToggle) {
-    const enabled = await supabaseService.getVocacolleWatchEnabled();
+    const enabled = await dbService.getVocacolleWatchEnabled();
     if (!enabled) {
       console.log("[VOCACOLLE] /vc_toggle off により無効化されているため処理をスキップします");
       return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'disabled' };
     }
   }
 
-  const keywords = await supabaseService.getVocacolleKeywords();
+  const keywords = await dbService.getVocacolleKeywords();
   if (!keywords.length) {
     console.log("[VOCACOLLE] 有効な監視キーワードが未登録のため処理をスキップします");
     return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'no_keywords' };

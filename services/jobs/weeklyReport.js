@@ -1,5 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
-const supabaseService = require('../supabase');
+const dbService = require('../database');
 const discordService = require('../discord');
 const utils = require('../../utils');
 const config = require('../../config');
@@ -19,7 +19,7 @@ async function sendWeeklyReport() {
     throw new Error("⚠️ DISCORD_CHANNEL_ID is not set in configuration!");
   }
 
-  const videos = await supabaseService.getAllVideos();
+  const videos = await dbService.getAllVideos();
   if (!videos.length) {
     console.log("週次レポート: 監視中の動画がないためスキップします");
     markRun('weeklyReport');
@@ -31,9 +31,9 @@ async function sendWeeklyReport() {
   for (const video of videos) {
     try {
       const [latest, weekAgo, history] = await Promise.all([
-        supabaseService.getLatestStats(video.id),
-        supabaseService.getStatsAsOf(video.id, 7),
-        supabaseService.getStatsHistory(video.id, 7),
+        dbService.getLatestStats(video.id),
+        dbService.getStatsAsOf(video.id, 7),
+        dbService.getStatsHistory(video.id, 7),
       ]);
       if (!latest) continue;
 

@@ -4,6 +4,7 @@ const handlers = {
   ...require('./commands/misc'),
   ...require('./commands/videos'),
   ...require('./commands/vocacolle'),
+  ...require('./commands/settings'),
 };
 
 /**

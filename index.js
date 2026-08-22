@@ -10,8 +10,7 @@ const { startScheduler } = require('./services/scheduler');
 console.log("🔍 Checking Environment Variables on Startup:");
 console.log(`- DISCORD_TOKEN: ${config.DISCORD.TOKEN ? "✅ PRESENT" : "❌ MISSING"}`);
 console.log(`- DISCORD_CHANNEL_ID: ${config.DISCORD.CHANNEL_ID ? "✅ PRESENT" : "❌ MISSING"}`);
-console.log(`- SUPABASE_URL: ${config.SUPABASE.URL ? "✅ PRESENT" : "❌ MISSING"}`);
-console.log(`- SUPABASE_KEY: ${config.SUPABASE.KEY ? "✅ PRESENT" : "❌ MISSING"}`);
+console.log(`- DB: SQLite (${require('./services/repositories/db').DB_PATH})`);
 
 const app = express();
 const PORT = config.PORT;

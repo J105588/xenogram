@@ -62,11 +62,14 @@ async function fetchUserVideos(userId) {
 }
 
 /**
- * config.NICO_USER_IDS の全ユーザーぶんをまとめて取得する
- * （コラボ相手や他の投稿者も合わせて監視したい場合に複数設定できる）
+ * 監視対象の全ユーザーぶんをまとめて取得する。
+ * ユーザーIDは /user_add 等で登録されたもの（DB）を優先し、未登録なら
+ * config.NICO_USER_IDS（環境変数 NICO_USER_IDS）にフォールバックする。
  */
 async function fetchAllUserVideos() {
-  const results = await Promise.all(config.NICO_USER_IDS.map((userId) => fetchUserVideos(userId)));
+  const dbService = require('./database');
+  const userIds = dbService.getNicoUserIds();
+  const results = await Promise.all(userIds.map((userId) => fetchUserVideos(userId)));
   return results.flat();
 }
 

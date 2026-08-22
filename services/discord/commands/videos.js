@@ -1,7 +1,7 @@
 const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const config = require('../../../config');
 const { fetchNicoData } = require('../../niconico');
-const supabaseService = require('../../supabase');
+const dbService = require('../../database');
 const utils = require('../../../utils');
 
 async function stats(interaction) {
@@ -9,9 +9,9 @@ async function stats(interaction) {
   const apiData = await fetchNicoData(videoId);
   if (!apiData) return await interaction.editReply(`❌ 動画ID ${videoId} のデータが取得できませんでした。`);
 
-  const latestDbStats = await supabaseService.getYesterdayStats(videoId);
+  const latestDbStats = await dbService.getYesterdayStats(videoId);
   const diff = utils.calculateDiff(apiData, latestDbStats);
-  const history = await supabaseService.getStatsHistory(videoId);
+  const history = await dbService.getStatsHistory(videoId);
 
   // 最新データが「今日」のものでない場合のみ、現在のリアルタイム値をグラフの末尾に一時的に追加する
   const todayStr = new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' });
@@ -43,7 +43,7 @@ async function stats(interaction) {
 }
 
 async function list(interaction) {
-  const videos = await supabaseService.getAllVideos();
+  const videos = await dbService.getAllVideos();
   if (!videos.length) return await interaction.editReply("現在監視中の動画はありません。");
   const embed = new EmbedBuilder().setTitle(`📺 監視中リスト (${videos.length}本)`).setColor(0x3498db);
   let desc = videos.map(v => `• [${v.id}](https://www.nicovideo.jp/watch/${v.id}) : ${v.title}`).join('\n');
@@ -55,26 +55,26 @@ async function list(interaction) {
 
 async function add(interaction, { client }) {
   const videoId = interaction.options.getString('video_id');
-  const exists = await supabaseService.hasVideo(videoId);
+  const exists = await dbService.hasVideo(videoId);
   if (exists) return await interaction.editReply(`⚠️ ${videoId} は既に監視リストに存在します。`);
 
   const apiData = await fetchNicoData(videoId);
   if (!apiData) return await interaction.editReply(`❌ 動画が見つかりませんでした。`);
 
-  await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
-  await supabaseService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
+  await dbService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
+  await dbService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
   await interaction.editReply(`✅ **${apiData.title}** (${videoId}) を監視リストに追加しました！`);
 
-  const videos = await supabaseService.getAllVideos();
+  const videos = await dbService.getAllVideos();
   client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });
 }
 
 async function remove(interaction, { client }) {
   const videoId = interaction.options.getString('video_id');
-  const success = await supabaseService.removeVideo(videoId);
+  const success = await dbService.removeVideo(videoId);
   if (success) {
     await interaction.editReply(`🗑️ ${videoId} を監視リストから削除しました。`);
-    const videos = await supabaseService.getAllVideos();
+    const videos = await dbService.getAllVideos();
     client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });
   } else {
     await interaction.editReply(`❌ 削除に失敗しました。`);
@@ -89,8 +89,8 @@ async function compare(interaction) {
 
   // 監視対象なら、直近24時間の伸び（DBの生履歴の中で最も古い記録との差分）も比較する
   const [growth1, growth2] = await Promise.all([
-    supabaseService.getRecentStatsHistory(v1, 24),
-    supabaseService.getRecentStatsHistory(v2, 24)
+    dbService.getRecentStatsHistory(v1, 24),
+    dbService.getRecentStatsHistory(v2, 24)
   ]);
   const diff24h = (current, history) => {
     if (!history.length) return null;
@@ -151,7 +151,7 @@ async function daily_report(interaction) {
 
 async function ranking(interaction) {
   const type = interaction.options.getString('type');
-  const allStats = await supabaseService.getAllLatestStats();
+  const allStats = await dbService.getAllLatestStats();
   allStats.sort((a, b) => (b.stats[type] || 0) - (a.stats[type] || 0));
   const top10 = allStats.slice(0, 10);
 
@@ -162,11 +162,11 @@ async function ranking(interaction) {
 }
 
 async function growth(interaction) {
-  const videos = await supabaseService.getAllVideos();
+  const videos = await dbService.getAllVideos();
 
   // パフォーマンス最適化: 非同期処理の並列化
   const growthPromises = videos.map(async (v) => {
-    const history = await supabaseService.getStatsHistory(v.id, 2); // 最新2件
+    const history = await dbService.getStatsHistory(v.id, 2); // 最新2件
     if (history.length >= 2) {
       const diff = history[history.length - 1].views - history[history.length - 2].views;
       return { title: v.title, id: v.id, diff };
@@ -185,7 +185,7 @@ async function growth(interaction) {
 }
 
 async function upcoming(interaction) {
-  const allStats = await supabaseService.getAllLatestStats();
+  const allStats = await dbService.getAllLatestStats();
   let upcomings = [];
   for (const item of allStats) {
     const upView = utils.getUpcomingMilestone(item.stats.views, 100);
@@ -203,7 +203,7 @@ async function upcoming(interaction) {
 }
 
 async function exportCsv(interaction) {
-  const allStats = await supabaseService.getAllLatestStats();
+  const allStats = await dbService.getAllLatestStats();
   let csv = "ID,Title,Views,Likes,Mylists,Comments,LastUpdated\n";
   allStats.forEach(item => {
     csv += `${item.video.id},"${item.video.title.replace(/"/g, '""')}",${item.stats.views},${item.stats.likes},${item.stats.mylists},${item.stats.comments},${item.stats.recorded_at}\n`;

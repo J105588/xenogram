@@ -1,6 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../../config');
-const supabaseService = require('../supabase');
+const dbService = require('../database');
 const { client, startDiscordBot, sendNotification, sendEmbedWithFiles, sendErrorEmbed } = require('./client');
 const { registerCommands } = require('./definitions');
 const { attachInteractionHandler } = require('./router');
@@ -28,7 +28,7 @@ async function sendStartupNotice(videoCount) {
 
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
-  const videos = await supabaseService.getAllVideos();
+  const videos = await dbService.getAllVideos();
   client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });
   await registerCommands();
   await sendStartupNotice(videos.length);

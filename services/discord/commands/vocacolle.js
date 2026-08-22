@@ -1,6 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../../../config');
-const supabaseService = require('../../supabase');
+const dbService = require('../../database');
 const { parseJstDateTime, formatJst } = require('../format');
 
 async function vc_add(interaction) {
@@ -24,7 +24,7 @@ async function vc_add(interaction) {
     return await interaction.editReply("監視終了日時は開始日時より後に設定してください。");
   }
 
-  const { data, error } = await supabaseService.addVocacolleKeyword({
+  const { data, error } = await dbService.addVocacolleKeyword({
     keyword, target, activeFrom, activeUntil, pageId, note
   });
 
@@ -56,8 +56,8 @@ async function vc_add(interaction) {
 
 async function vc_list(interaction) {
   const [keywords, watchEnabled] = await Promise.all([
-    supabaseService.getVocacolleKeywords(true),
-    supabaseService.getVocacolleWatchEnabled()
+    dbService.getVocacolleKeywords(true),
+    dbService.getVocacolleWatchEnabled()
   ]);
   const watchStateLine = `監視スケジュール: ${watchEnabled ? '**有効** (毎時5分に実行)' : '**無効** (/vc_toggle on で再開)'}`;
 
@@ -91,7 +91,7 @@ async function vc_list(interaction) {
 
 async function vc_remove(interaction) {
   const id = interaction.options.getInteger('id');
-  const success = await supabaseService.removeVocacolleKeyword(id);
+  const success = await dbService.removeVocacolleKeyword(id);
   await interaction.editReply(success ? `監視キーワード #${id} を削除しました。` : "削除に失敗しました。");
 }
 
@@ -115,7 +115,7 @@ async function vc_check(interaction) {
 async function vc_toggle(interaction) {
   const state = interaction.options.getString('state');
   const enabled = state === 'on';
-  const success = await supabaseService.setVocacolleWatchEnabled(enabled);
+  const success = await dbService.setVocacolleWatchEnabled(enabled);
 
   if (!success) {
     return await interaction.editReply("設定の更新に失敗しました。ログを確認してください。");

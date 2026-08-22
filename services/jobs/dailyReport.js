@@ -1,6 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const niconico = require('../niconico');
-const supabaseService = require('../supabase');
+const dbService = require('../database');
 const discordService = require('../discord');
 const utils = require('../../utils');
 const config = require('../../config');
@@ -16,7 +16,7 @@ async function reportEachVideoStats() {
     throw new Error("⚠️ DISCORD_CHANNEL_ID is not set in configuration!");
   }
 
-  const videos = await supabaseService.getAllVideos();
+  const videos = await dbService.getAllVideos();
 
   for (const video of videos) {
     try {
@@ -26,14 +26,14 @@ async function reportEachVideoStats() {
         continue;
       }
 
-      const latestDbStats = await supabaseService.getYesterdayStats(video.id);
+      const latestDbStats = await dbService.getYesterdayStats(video.id);
       const diff = utils.calculateDiff(apiData, latestDbStats);
 
       // 新しい統計をDBに記録
-      await supabaseService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
+      await dbService.recordStats(video.id, apiData.view, apiData.comment, apiData.mylist, apiData.like);
 
       // グラフURLの生成
-      const history = await supabaseService.getStatsHistory(video.id);
+      const history = await dbService.getStatsHistory(video.id);
       const chartUrl = utils.generateChartUrl(history);
 
       const embed = new EmbedBuilder()
