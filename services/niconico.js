@@ -5,18 +5,21 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 /**
- * 対象ユーザーの投稿動画一覧を取得し、新着検知で使える形式で返す。
+ * 指定した1ユーザーの投稿動画一覧を、再生数・いいね等の数値も含めて取得する。
  *
  * 以前は `?rss=2.0` のRSSフィードを使っていたが、ニコニコ側でこのクエリが
  * 廃止され、通常のHTMLページ（Next.jsのユーザーページ）が返るようになった。
  * XMLとしてパースできず常に0件を返し、新着動画の自動検知が完全に止まっていた。
  *
  * ユーザーページが内部で呼んでいる nvapi.nicovideo.jp の投稿動画一覧APIを
- * 直接叩くことで、RSSを介さずに新着を検知する。
+ * 直接叩くことで、RSSを介さずに新着を検知する。このAPIは投稿者の全動画の
+ * 再生数・いいね・マイリスト・コメントも一度に返すため、毎時のマイルストーン
+ * チェックで動画ごとに個別APIを叩く必要をなくすのにも使う（タグ情報だけは
+ * このAPIに含まれないため、タグ変更検知は使えない）。
  */
-async function getRssItems() {
+async function fetchUserVideos(userId) {
   try {
-    const response = await axios.get(`https://nvapi.nicovideo.jp/v3/users/${config.NICO_USER_ID}/videos`, {
+    const response = await axios.get(`https://nvapi.nicovideo.jp/v3/users/${userId}/videos`, {
       params: {
         page: 1,
         pageSize: 100,
@@ -34,24 +37,48 @@ async function getRssItems() {
 
     const meta = response.data && response.data.meta;
     if (!meta || meta.status !== 200) {
-      console.error("投稿動画一覧の取得に失敗しました:", meta && meta.status);
+      console.error(`投稿動画一覧の取得に失敗しました (userId=${userId}):`, meta && meta.status);
       return [];
     }
 
     const items = (response.data.data && response.data.data.items) || [];
-    // 呼び出し元（scheduler.js）は RSS 時代と同じ { link } の形を期待しているため、
-    // 変換だけしてそのまま渡す（新しい順のまま。呼び出し元で reverse() される）
     return items
       .map((item) => item.essential)
       .filter(Boolean)
       .map((video) => ({
-        link: `https://www.nicovideo.jp/watch/${video.id}`,
+        id: video.id,
         title: video.title,
+        view: (video.count && video.count.view) || 0,
+        comment: (video.count && video.count.comment) || 0,
+        mylist: (video.count && video.count.mylist) || 0,
+        like: (video.count && video.count.like) || 0,
+        thumbnail: (video.thumbnail && video.thumbnail.url) || '',
+        registeredAt: video.registeredAt || null,
       }));
   } catch (e) {
-    console.error("投稿動画一覧の取得エラー:", e.message);
+    console.error(`投稿動画一覧の取得エラー (userId=${userId}):`, e.message);
     return [];
   }
+}
+
+/**
+ * config.NICO_USER_IDS の全ユーザーぶんをまとめて取得する
+ * （コラボ相手や他の投稿者も合わせて監視したい場合に複数設定できる）
+ */
+async function fetchAllUserVideos() {
+  const results = await Promise.all(config.NICO_USER_IDS.map((userId) => fetchUserVideos(userId)));
+  return results.flat();
+}
+
+/**
+ * 新着検知用に { link, title } の形だけを返す（fetchAllUserVideos の薄いラッパー）
+ */
+async function getRssItems() {
+  const videos = await fetchAllUserVideos();
+  return videos.map((video) => ({
+    link: `https://www.nicovideo.jp/watch/${video.id}`,
+    title: video.title,
+  }));
 }
 
 /**
@@ -106,5 +133,6 @@ async function fetchNicoData(id) {
 
 module.exports = {
   getRssItems,
+  fetchAllUserVideos,
   fetchNicoData
 };
