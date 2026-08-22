@@ -165,19 +165,17 @@ async function reportEachVideoStats() {
  * @param {boolean} [options.force] true なら通知済みでも再通知する（手動確認用）
  * @param {boolean} [options.bypassToggle] true なら /vc_toggle off で無効化中でも実行する（/vc_check 用）
  * @param {boolean} [options.notifySummary] true なら新規ヒットが無くてもチェック結果をチャンネルに通知する（定期実行用）
- * @param {boolean} [options.summaryScreenshot] true ならサマリーにもスクショを付ける。
- *   人が明示的に叩く /vc_check 専用。毎時の自動実行では絶対に true にしない
- *   （Chromium起動が毎時走り続けてRenderのメモリ上限を超え、自動再起動を起こしたため）。
+ * @param {boolean} [options.summaryScreenshot] false を渡すとサマリーのスクショを省略する（既定は true）
  * @returns {Promise<{checked: number, hits: number, notified: number, rankingTitle: string, skipped?: string}>}
  */
 let vocacolleWatchInFlight = false;
 
 async function runVocacolleWatch(options = {}) {
-  const { force = false, bypassToggle = false, notifySummary = false, summaryScreenshot = false } = options;
+  const { force = false, bypassToggle = false, notifySummary = false, summaryScreenshot = true } = options;
 
-  // 毎時の自動実行と手動 /vc_check が重なると、前のChromiumが終了しきる前に
-  // 次のChromiumが起動し、メモリが積み上がってRenderのメモリ上限を超えて
-  // 落ちる原因になっていた。同時に1本しか走らせないようにする。
+  // 同時に複数のChromiumが立ち上がると無駄にメモリを食い、
+  // ランキングページへの同時アクセスも増えるため、常に1本だけ走らせる。
+  // （毎時の自動実行中に手動 /vc_check を叩いた場合などを弾く）
   if (vocacolleWatchInFlight) {
     console.warn("[VOCACOLLE] 前回の実行がまだ完了していないため、今回はスキップします");
     return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'already_running' };
@@ -257,12 +255,8 @@ async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summ
 
       embed.setFooter({ text: config.FOOTER_TEXT }).setTimestamp();
 
-      // 定期サマリー（毎時の自動実行）は意図的にテキストのみ（数値は毎回最新）。
-      // 新規ヒットでなくても毎時スクリーンショットまで撮る形にしたところ、
-      // Chromium起動が「稀な新規ヒット時のみ」から「アクティブな該当曲がある限り毎時」に
-      // 増えてしまい、Renderのメモリ上限超過（自動再起動）を引き起こしたため撤回した。
-      // /vc_check（人が明示的に叩く手動確認）だけは summaryScreenshot=true で呼ばれ、
-      // 毎時ループする心配が無いためスクショ付きで見られるようにする。
+      // 定期サマリー・手動確認のどちらでも、該当曲があればスクショを添える。
+      // Discordの1メッセージあたりEmbed上限が10件なので、サマリー分を除いた9件が上限。
       const embedsToSend = [embed];
       const files = [];
 
@@ -273,7 +267,7 @@ async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summ
           if (!item.watchId || seenWatchIds.has(item.watchId)) continue;
           seenWatchIds.add(item.watchId);
           uniqueItems.push(item);
-          if (uniqueItems.length >= 5) break; // 手動確認用途なので控えめに
+          if (uniqueItems.length >= 9) break;
         }
 
         const shots = await screenshot.captureRankingEntries({

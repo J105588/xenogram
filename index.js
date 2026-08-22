@@ -29,20 +29,22 @@ app.listen(PORT, () => {
   startDiscordBot();
   startScheduler();
 
-  // 13分に1回、自分自身にアクセスしてRenderのスリープを回避
-  if (!process.env.RENDER_EXTERNAL_URL || process.env.RENDER_EXTERNAL_URL.includes('localhost')) {
-    console.warn("⚠️ [WARNING] RENDER_EXTERNAL_URL is not configured with a public URL. The sleep-avoidance ping will NOT work on Render and the bot will sleep!");
-  } else {
-    console.log(`✅ Self-ping protection enabled for URL: ${config.RENDER_EXTERNAL_URL}`);
-  }
+  // Renderの無料プランは一定時間アクセスが無いとスリープするため、
+  // 自分自身に定期アクセスして起きたままにする（Render以外では不要）。
+  // 自前サーバー/PM2運用ではスリープしないので、URL未設定なら何もしない。
+  const selfPingUrl = process.env.RENDER_EXTERNAL_URL;
+  const selfPingEnabled = !!selfPingUrl && !selfPingUrl.includes('localhost');
 
-  setInterval(() => {
-    if (config.RENDER_EXTERNAL_URL) {
-      axios.get(config.RENDER_EXTERNAL_URL)
+  if (selfPingEnabled) {
+    console.log(`✅ Self-ping protection enabled for URL: ${selfPingUrl}`);
+    setInterval(() => {
+      axios.get(selfPingUrl)
         .then(() => console.log('Self-ping successful.'))
         .catch(err => console.error('Self-ping failed:', err.message));
-    }
-  }, 13 * 60 * 1000); // 13分
+    }, 13 * 60 * 1000); // 13分
+  } else {
+    console.log('ℹ️ Self-ping is disabled (not needed outside Render).');
+  }
 });
 
 // グローバルな例外処理

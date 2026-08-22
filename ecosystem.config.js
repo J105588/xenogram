@@ -15,17 +15,26 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '30s',
-      restart_delay: 5000,
+      // 再起動を繰り返すほど待ち時間を延ばす（ネットワーク断など一時的な障害から
+      // 復帰しやすくしつつ、恒久的な不具合で連打し続けないようにする）
+      exp_backoff_restart_delay: 5000,
       watch: false,
-      // このPCでは512MBのような制約はないが、万一の暴走に備えて上限を設定
-      // （Renderのような低メモリ環境向けではなく、単なる安全弁）
-      max_memory_restart: '1500M',
+      // Chromiumを含めても通常は数百MB程度。万一のリークに備えた安全弁
+      max_memory_restart: '2G',
+      // 毎日午前4時に予防的な再起動をかけ、長期稼働で溜まるリソースをリセットする
+      // （4時なら毎時5分のボカコレ監視・朝7時のデイリーレポートのどちらとも重ならない）
+      cron_restart: '0 4 * * *',
+      // SIGINT を受けてから強制終了するまでの猶予。
+      // 撮影中のChromiumを閉じる時間を確保する（既定の1.6秒では短い）
+      kill_timeout: 15000,
       env: {
         NODE_ENV: 'production',
         TZ: 'Asia/Tokyo',
       },
       out_file: './logs/pm2-out.log',
       error_file: './logs/pm2-error.log',
+      // ログが無限に肥大化しないよう日付でローテーションする
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       time: true,
     },
   ],

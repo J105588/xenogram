@@ -7,26 +7,22 @@ function getPuppeteer() {
   return puppeteer;
 }
 
-// コンテナ/低メモリ環境（Render, Fly.io, Docker 等）で安定させるための起動オプション。
-// Render無料/最小プラン(512MB)でメモリ超過による自動再起動が発生したため、
-// レンダラーのメモリ上限を明示的に絞っている。
+// Chromium の起動オプション。
+// 以前はRender(512MB)のメモリ超過対策でV8ヒープを192MBに絞る等の制限をかけていたが、
+// 自前サーバー運用に移行しメモリ制約が無くなったため、描画品質を優先して外している。
+// （--disable-dev-shm-usage 等、環境を問わず安定性に寄与するものは残す）
 const LAUNCH_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
-  '--disable-gpu',
   '--disable-extensions',
   '--disable-background-networking',
   '--disable-backgrounding-occluded-windows',
   '--disable-renderer-backgrounding',
-  '--disable-software-rasterizer',
-  '--disable-breakpad', // クラッシュレポート収集を無効化（若干のメモリ節約）
   '--no-first-run',
-  '--no-zygote',
   '--hide-scrollbars',
   '--mute-audio',
   '--lang=ja-JP',
-  '--js-flags=--max-old-space-size=192', // V8ヒープを192MBに制限
 ];
 
 async function launchBrowser(options = {}) {

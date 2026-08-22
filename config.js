@@ -35,14 +35,13 @@ module.exports = {
   // Puppeteer によるスクリーンショット設定
   SCREENSHOT: {
     ENABLED: process.env.SCREENSHOT_ENABLED !== 'false',
-    // Render/Docker等でシステムのChromeを使う場合に指定（未指定ならpuppeteer同梱版）
+    // システムのChromeを使う場合に指定（未指定ならpuppeteer同梱版）
     EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    // Render等の低スペック環境ではページ描画に1分以上かかることがあるため、
-    // デフォルトを長めに取っている（十分速い環境ではもっと短くしてよい）
-    TIMEOUT_MS: Number(process.env.SCREENSHOT_TIMEOUT_MS || 90000),
-    VIEWPORT_WIDTH: Number(process.env.SCREENSHOT_VIEWPORT_WIDTH || 1280),
-    VIEWPORT_HEIGHT: Number(process.env.SCREENSHOT_VIEWPORT_HEIGHT || 800),
-    // 低メモリ環境（Render無料枠など）では 1 のままにしておく
-    DEVICE_SCALE_FACTOR: Number(process.env.SCREENSHOT_SCALE || 1),
+    TIMEOUT_MS: Number(process.env.SCREENSHOT_TIMEOUT_MS || 60000),
+    VIEWPORT_WIDTH: Number(process.env.SCREENSHOT_VIEWPORT_WIDTH || 1440),
+    VIEWPORT_HEIGHT: Number(process.env.SCREENSHOT_VIEWPORT_HEIGHT || 1000),
+    // 2 にすると解像度2倍の高精細スクショになる（Discord上で文字がくっきりする）。
+    // メモリ制約のあるホスティングでは 1 に落とすこと
+    DEVICE_SCALE_FACTOR: Number(process.env.SCREENSHOT_SCALE || 2),
   },
 };
