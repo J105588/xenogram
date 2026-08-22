@@ -20,11 +20,7 @@ module.exports = {
     GUILD_ID: process.env.DISCORD_GUILD_ID, // 開発用
     CHANNEL_ID: process.env.DISCORD_CHANNEL_ID, // 通知を送信するチャンネルID
   },
-  // PORT / RENDER_EXTERNAL_URL は Render にデプロイする場合だけ使う設定。
-  // PM2でのローカル/自宅サーバー運用では不要（index.js側もRENDER_EXTERNAL_URL未設定なら
-  // 自己ping自体を行わないようになっている）
   PORT: process.env.PORT || 3000,
-  RENDER_EXTERNAL_URL: process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`,
 
   // ボカコレ（VOCALOID COLLECTION）ランキング監視
   //

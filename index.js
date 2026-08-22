@@ -2,7 +2,6 @@
 process.env.TZ = 'Asia/Tokyo';
 
 const express = require('express');
-const axios = require('axios');
 const config = require('./config');
 const { startDiscordBot } = require('./services/discord');
 const { startScheduler } = require('./services/scheduler');
@@ -31,23 +30,6 @@ app.listen(PORT, () => {
   // Discord Botとスケジューラーの起動
   startDiscordBot();
   startScheduler();
-
-  // Renderの無料プランは一定時間アクセスが無いとスリープするため、
-  // 自分自身に定期アクセスして起きたままにする（Render以外では不要）。
-  // 自前サーバー/PM2運用ではスリープしないので、URL未設定なら何もしない。
-  const selfPingUrl = process.env.RENDER_EXTERNAL_URL;
-  const selfPingEnabled = !!selfPingUrl && !selfPingUrl.includes('localhost');
-
-  if (selfPingEnabled) {
-    console.log(`✅ Self-ping protection enabled for URL: ${selfPingUrl}`);
-    setInterval(() => {
-      axios.get(selfPingUrl)
-        .then(() => console.log('Self-ping successful.'))
-        .catch(err => console.error('Self-ping failed:', err.message));
-    }, 13 * 60 * 1000); // 13分
-  } else {
-    console.log('ℹ️ Self-ping is disabled (not needed outside Render).');
-  }
 });
 
 // グローバルな例外処理
