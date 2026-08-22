@@ -8,7 +8,12 @@
     "dev": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "vocacolle:dryrun": "node test/vocacolle_dry_run.js",
-    "render-build": "npm install && npx puppeteer browsers install chrome"
+    "render-build": "npm install && npx puppeteer browsers install chrome",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop xenogram",
+    "pm2:restart": "pm2 restart xenogram",
+    "pm2:logs": "pm2 logs xenogram",
+    "pm2:status": "pm2 status"
   },
   "keywords": [],
   "author": "",
