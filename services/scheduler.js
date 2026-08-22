@@ -234,42 +234,12 @@ async function runVocacolleWatch(options = {}) {
 
       embed.setFooter({ text: config.FOOTER_TEXT }).setTimestamp();
 
-      const embedsToSend = [embed];
-      const files = [];
-
-      if (matches.length) {
-        // 1メッセージに載せられるEmbedは最大10件なので、サマリー分を除いた9件に絞る
-        const uniqueItems = [];
-        const seenWatchIds = new Set();
-        for (const { item } of matches) {
-          if (!item.watchId || seenWatchIds.has(item.watchId)) continue;
-          seenWatchIds.add(item.watchId);
-          uniqueItems.push(item);
-          if (uniqueItems.length >= 9) break;
-        }
-
-        const shots = await screenshot.captureRankingEntries({
-          url: config.VOCACOLLE.RANKING_URL,
-          watchIds: uniqueItems.map(i => i.watchId)
-        });
-
-        for (const item of uniqueItems) {
-          const shot = shots.get(item.watchId);
-          const itemEmbed = new EmbedBuilder()
-            .setTitle(`${item.rank}位: ${item.title}`)
-            .setURL(`https://www.nicovideo.jp/watch/${item.watchId}`)
-            .setColor(parseInt(config.CHART_COLOR, 16));
-
-          if (shot) {
-            const fileName = `vocacolle_summary_${item.watchId}.png`;
-            files.push({ buffer: shot.buffer, name: fileName });
-            itemEmbed.setImage(`attachment://${fileName}`);
-          }
-          embedsToSend.push(itemEmbed);
-        }
-      }
-
-      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embeds: embedsToSend, files });
+      // 定期サマリーは意図的にテキストのみ（数値は毎回最新）。
+      // 新規ヒットでなくても毎時スクリーンショットまで撮る形にしたところ、
+      // Chromium起動が「稀な新規ヒット時のみ」から「アクティブな該当曲がある限り毎時」に
+      // 増えてしまい、Renderのメモリ上限超過（自動再起動）を引き起こしたため撤回した。
+      // スクショは引き続き、下の新規ヒット時（pending.length > 0）のときだけ撮る。
+      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files: [] });
     }
 
     return { checked: ranking.items.length, hits: matches.length, notified: 0, rankingTitle: ranking.title };

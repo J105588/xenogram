@@ -41,7 +41,7 @@ module.exports = {
     // デフォルトを長めに取っている（十分速い環境ではもっと短くしてよい）
     TIMEOUT_MS: Number(process.env.SCREENSHOT_TIMEOUT_MS || 90000),
     VIEWPORT_WIDTH: Number(process.env.SCREENSHOT_VIEWPORT_WIDTH || 1280),
-    VIEWPORT_HEIGHT: Number(process.env.SCREENSHOT_VIEWPORT_HEIGHT || 1000),
+    VIEWPORT_HEIGHT: Number(process.env.SCREENSHOT_VIEWPORT_HEIGHT || 800),
     // 低メモリ環境（Render無料枠など）では 1 のままにしておく
     DEVICE_SCALE_FACTOR: Number(process.env.SCREENSHOT_SCALE || 1),
   },
