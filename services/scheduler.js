@@ -1,6 +1,8 @@
 const cron = require('node-cron');
 const { EmbedBuilder } = require('discord.js');
 const niconico = require('./niconico');
+const vocacolle = require('./vocacolle');
+const screenshot = require('./screenshot');
 const supabaseService = require('./supabase');
 const discordService = require('./discord');
 const utils = require('../utils');
@@ -155,6 +157,131 @@ async function reportEachVideoStats() {
   }
 }
 
+/**
+ * 【毎時5分に実行】ボカコレのランキングを取得し、
+ * 登録キーワード（曲名／アーティスト名の完全一致）にヒットしたらスクショ付きで通知する
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.force] true なら通知済みでも再通知する（手動確認用）
+ * @param {boolean} [options.bypassToggle] true なら /vc_toggle off で無効化中でも実行する（/vc_check 用）
+ * @returns {Promise<{checked: number, hits: number, notified: number, rankingTitle: string, skipped?: string}>}
+ */
+async function runVocacolleWatch(options = {}) {
+  const { force = false, bypassToggle = false } = options;
+  console.log("Running vocacolle ranking watch...");
+
+  if (!bypassToggle) {
+    const enabled = await supabaseService.getVocacolleWatchEnabled();
+    if (!enabled) {
+      console.log("[VOCACOLLE] /vc_toggle off により無効化されているため処理をスキップします");
+      return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'disabled' };
+    }
+  }
+
+  const keywords = await supabaseService.getVocacolleKeywords();
+  if (!keywords.length) {
+    console.log("[VOCACOLLE] 有効な監視キーワードが未登録のため処理をスキップします");
+    return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'no_keywords' };
+  }
+
+  const ranking = await vocacolle.fetchRanking(config.VOCACOLLE.RANKING_URL, {
+    getCachedSource: (pageId) => supabaseService.getVocacolleRankingSource(pageId),
+    setCachedSource: (pageId, source) => supabaseService.upsertVocacolleRankingSource(pageId, source)
+  });
+  const now = new Date();
+  const activeCount = keywords.filter(k => vocacolle.isActive(k, now)).length;
+  console.log(`[VOCACOLLE] ${ranking.title} ${ranking.items.length}件を取得 / 有効キーワード ${activeCount}件`);
+
+  const matches = vocacolle.findMatches(ranking, keywords, now);
+
+  // 既に通知済みの組み合わせを除外する
+  const pending = [];
+  for (const match of matches) {
+    if (!force) {
+      const already = await supabaseService.hasVocacolleDetection(match.keyword.id, ranking.pageId, match.item.watchId);
+      if (already) continue;
+    }
+    pending.push(match);
+  }
+
+  if (!pending.length) {
+    console.log(`[VOCACOLLE] 新規のヒットはありません（ヒット総数 ${matches.length}件）`);
+    return { checked: ranking.items.length, hits: matches.length, notified: 0, rankingTitle: ranking.title };
+  }
+
+  // 重複する動画は1回だけ撮影する
+  const uniqueWatchIds = [...new Set(pending.map(m => m.item.watchId).filter(Boolean))];
+  const shots = await screenshot.captureRankingEntries({
+    url: config.VOCACOLLE.RANKING_URL,
+    watchIds: uniqueWatchIds
+  });
+
+  let notified = 0;
+
+  for (const { keyword, item } of pending) {
+    try {
+      const shot = shots.get(item.watchId);
+      const targetLabel = keyword.target === 'artist' ? 'アーティスト名' : '曲名';
+
+      const embed = new EmbedBuilder()
+        .setTitle(`ボカコレ ${ranking.title}ランキング ${item.rank}位 で検知`)
+        .setURL(item.watchId ? `https://www.nicovideo.jp/watch/${item.watchId}` : ranking.url)
+        .setColor(parseInt(config.CHART_COLOR, 16))
+        .setDescription(`**${item.title}**\n${item.artist}`)
+        .addFields(
+          { name: "順位", value: `**${item.rank}** / ${ranking.items.length}`, inline: true },
+          { name: "再生", value: item.view.toLocaleString(), inline: true },
+          { name: "いいね", value: item.like.toLocaleString(), inline: true },
+          { name: "マイリスト", value: item.mylist.toLocaleString(), inline: true },
+          { name: "コメント", value: item.comment.toLocaleString(), inline: true },
+          { name: "一致条件", value: `${targetLabel}: \`${keyword.keyword}\``, inline: true }
+        )
+        .setFooter({ text: config.FOOTER_TEXT })
+        .setTimestamp();
+
+      if (item.thumbnail) embed.setThumbnail(item.thumbnail);
+
+      const files = [];
+      if (shot) {
+        const fileName = `vocacolle_${item.watchId || 'ranking'}.png`;
+        files.push({ buffer: shot.buffer, name: fileName });
+        embed.setImage(`attachment://${fileName}`);
+      } else {
+        embed.addFields({ name: "注意", value: "スクリーンショットの取得に失敗しました。", inline: false });
+      }
+
+      const sent = await discordService.sendEmbedWithFiles({
+        channelId: config.VOCACOLLE.CHANNEL_ID,
+        embed,
+        files
+      });
+
+      if (sent) notified += 1;
+
+      if (!force) {
+        await supabaseService.recordVocacolleDetection({
+          keywordId: keyword.id,
+          pageId: ranking.pageId,
+          watchId: item.watchId,
+          matchedKeyword: keyword.keyword,
+          matchedTarget: keyword.target,
+          rank: item.rank,
+          title: item.title,
+          artist: item.artist,
+          view: item.view,
+          screenshotOk: !!shot
+        });
+      }
+    } catch (itemError) {
+      // 1件失敗しても残りの通知は続行する
+      console.error(`[VOCACOLLE] ${item.watchId} の通知処理に失敗しました:`, itemError);
+    }
+  }
+
+  console.log(`[VOCACOLLE] ${notified}件を通知しました`);
+  return { checked: ranking.items.length, hits: matches.length, notified, rankingTitle: ranking.title };
+}
+
 function startScheduler() {
   // 1時間に1回 (毎時0分)
   cron.schedule('0 * * * *', () => {
@@ -172,11 +299,25 @@ function startScheduler() {
     });
   }, { timezone: "Asia/Tokyo" });
   
+  // ボカコレ ランキング監視 (既定: 毎時5分)
+  if (config.VOCACOLLE.ENABLED) {
+    cron.schedule(config.VOCACOLLE.CRON, () => {
+      runVocacolleWatch().catch(async err => {
+        console.error(err);
+        await discordService.sendErrorEmbed(err, "🚨 Scheduler: Vocacolle Watch Failed");
+      });
+    }, { timezone: "Asia/Tokyo" });
+    console.log(`Vocacolle watcher scheduled: "${config.VOCACOLLE.CRON}" (Asia/Tokyo)`);
+  } else {
+    console.log("Vocacolle watcher is disabled (VOCACOLLE_ENABLED=false).");
+  }
+
   console.log("Schedulers started.");
 }
 
 module.exports = {
   startScheduler,
   updateVideoList,
-  reportEachVideoStats
+  reportEachVideoStats,
+  runVocacolleWatch
 };

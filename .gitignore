@@ -3,3 +3,5 @@ node_modules/
 .DS_Store
 stats_export.csv
 main.gs.old
+
+test/output/

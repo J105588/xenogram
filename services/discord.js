@@ -10,24 +10,24 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const commands = [
   { name: 'help', description: '利用可能な全コマンドのリストを表示します。' },
   { name: 'ping', description: 'Botの稼働状況と応答速度を確認します。' },
-  { 
-    name: 'stats', 
+  {
+    name: 'stats',
     description: '指定した動画の最新データとグラフを表示します。',
     options: [{ name: 'video_id', type: 3, description: '動画ID (例: sm1234567)', required: true }]
   },
   { name: 'list', description: '現在監視中の全動画のリストを表示します。' },
-  { 
-    name: 'add', 
+  {
+    name: 'add',
     description: '手動で特定の動画を監視対象に追加します。',
     options: [{ name: 'video_id', type: 3, description: '動画ID (例: sm1234567)', required: true }]
   },
-  { 
-    name: 'remove', 
+  {
+    name: 'remove',
     description: '指定した動画を監視リストから除外します。',
     options: [{ name: 'video_id', type: 3, description: '動画ID (例: sm1234567)', required: true }]
   },
-  { 
-    name: 'compare', 
+  {
+    name: 'compare',
     description: '2つの動画のステータスを比較します。',
     options: [
       { name: 'video_id1', type: 3, description: '動画ID 1', required: true },
@@ -36,8 +36,8 @@ const commands = [
   },
   { name: 'force_update', description: '【管理者】1時間に1回の定期更新を手動で実行します。' },
   { name: 'daily_report', description: '【管理者】毎朝のデイリーレポートを手動で実行します。' },
-  { 
-    name: 'ranking', 
+  {
+    name: 'ranking',
     description: '監視中動画のランキングを表示します。',
     options: [{
       name: 'type', type: 3, description: 'ランキングの指標', required: true,
@@ -51,8 +51,77 @@ const commands = [
   },
   { name: 'growth', description: '直近24時間で最も伸びている動画のトップを表示します。' },
   { name: 'upcoming', description: 'もうすぐ次のキリ番（マイルストーン）に到達しそうな動画を表示します。' },
-  { name: 'export', description: '記録されている統計データをCSVファイルとしてエクスポートします。' }
+  { name: 'export', description: '記録されている統計データをCSVファイルとしてエクスポートします。' },
+  {
+    name: 'vc_add',
+    description: 'ボカコレ監視キーワードを追加します（曲名・アーティスト名の完全一致）。',
+    options: [
+      { name: 'keyword', type: 3, description: '完全一致させる曲名またはアーティスト名', required: true },
+      {
+        name: 'target', type: 3, description: '照合する対象', required: true,
+        choices: [
+          { name: '曲名', value: 'title' },
+          { name: 'アーティスト名', value: 'artist' }
+        ]
+      },
+      { name: 'active_from', type: 3, description: '監視開始日時 (例: 2026-08-21 19:00)', required: false },
+      { name: 'active_until', type: 3, description: '監視終了日時 (例: 2026-08-24 17:00)', required: false },
+      { name: 'note', type: 3, description: 'メモ', required: false }
+    ]
+  },
+  { name: 'vc_list', description: 'ボカコレ監視キーワードの一覧を表示します。' },
+  {
+    name: 'vc_remove',
+    description: 'ボカコレ監視キーワードを削除します。',
+    options: [{ name: 'id', type: 4, description: '/vc_list で表示されるID', required: true }]
+  },
+  { name: 'vc_check', description: '【管理者】ボカコレ監視を今すぐ1回実行します。' },
+  {
+    name: 'vc_toggle',
+    description: '【管理者】ボカコレ監視の有効/無効を切り替えます（再起動不要）。',
+    options: [{
+      name: 'state', type: 3, description: '設定する状態', required: true,
+      choices: [
+        { name: '有効にする (ON)', value: 'on' },
+        { name: '無効にする (OFF)', value: 'off' }
+      ]
+    }]
+  }
 ];
+
+/**
+ * "2026-08-21 19:00" のような入力を JST として ISO 文字列に変換する。
+ * ISO 形式で渡された場合はそのまま解釈する。
+ * @returns {string|null} 変換できなければ null
+ */
+function parseJstDateTime(input) {
+  if (!input) return null;
+
+  const trimmed = input.trim();
+  // 既にタイムゾーン付きならそのまま解釈する
+  if (/(Z|[+-]\d{2}:?\d{2})$/.test(trimmed)) {
+    const parsed = new Date(trimmed);
+    return isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  const m = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!m) return null;
+
+  const [, y, mo, d, h = '0', mi = '0', sec = '0'] = m;
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  // JST(+09:00) 固定で組み立てる
+  const iso = `${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}:${pad(sec)}+09:00`;
+  const parsed = new Date(iso);
+  return isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+/**
+ * ISO 文字列を日本時間の見やすい表記にする
+ */
+function formatJst(iso) {
+  if (!iso) return '制限なし';
+  return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+}
 
 async function registerCommands() {
   if (!config.DISCORD.TOKEN || !config.DISCORD.CLIENT_ID) return;
@@ -93,7 +162,7 @@ client.on('interactionCreate', async interaction => {
       embed.setDescription(desc);
       await interaction.editReply({ embeds: [embed] });
     }
-    
+
     else if (commandName === 'ping') {
       const ping = Date.now() - interaction.createdTimestamp;
       await interaction.editReply(`🏓 Pong! Latency is ${ping}ms. API Latency is ${Math.round(client.ws.ping)}ms`);
@@ -107,13 +176,13 @@ client.on('interactionCreate', async interaction => {
       const latestDbStats = await supabaseService.getYesterdayStats(videoId);
       const diff = utils.calculateDiff(apiData, latestDbStats);
       const history = await supabaseService.getStatsHistory(videoId);
-      
+
       // 最新データが「今日」のものでない場合のみ、現在のリアルタイム値をグラフの末尾に一時的に追加する
       const todayStr = new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' });
-      const lastDateStr = history.length > 0 
-        ? new Date(history[history.length - 1].recorded_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) 
+      const lastDateStr = history.length > 0
+        ? new Date(history[history.length - 1].recorded_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })
         : null;
-        
+
       if (lastDateStr !== todayStr) {
         history.push({ views: apiData.view, recorded_at: new Date().toISOString() });
       }
@@ -152,14 +221,14 @@ client.on('interactionCreate', async interaction => {
       const videoId = interaction.options.getString('video_id');
       const exists = await supabaseService.hasVideo(videoId);
       if (exists) return await interaction.editReply(`⚠️ ${videoId} は既に監視リストに存在します。`);
-      
+
       const apiData = await fetchNicoData(videoId);
       if (!apiData) return await interaction.editReply(`❌ 動画が見つかりませんでした。`);
-      
+
       await supabaseService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
       await supabaseService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
       await interaction.editReply(`✅ **${apiData.title}** (${videoId}) を監視リストに追加しました！`);
-      
+
       const videos = await supabaseService.getAllVideos();
       client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });
     }
@@ -222,7 +291,7 @@ client.on('interactionCreate', async interaction => {
 
     else if (commandName === 'growth') {
       const videos = await supabaseService.getAllVideos();
-      
+
       // パフォーマンス最適化: 非同期処理の並列化
       const growthPromises = videos.map(async (v) => {
         const history = await supabaseService.getStatsHistory(v.id, 2); // 最新2件
@@ -272,9 +341,128 @@ client.on('interactionCreate', async interaction => {
       await interaction.editReply({ content: "📊 最新の統計データCSVです：", files: [file] });
     }
 
+    else if (commandName === 'vc_add') {
+      const keyword = interaction.options.getString('keyword');
+      const target = interaction.options.getString('target');
+      const fromRaw = interaction.options.getString('active_from');
+      const untilRaw = interaction.options.getString('active_until');
+      const note = interaction.options.getString('note');
+
+      const activeFrom = parseJstDateTime(fromRaw);
+      const activeUntil = parseJstDateTime(untilRaw);
+
+      if (fromRaw && !activeFrom) {
+        return await interaction.editReply(`日時の形式が読み取れませんでした: \`${fromRaw}\`（例: 2026-08-21 19:00）`);
+      }
+      if (untilRaw && !activeUntil) {
+        return await interaction.editReply(`日時の形式が読み取れませんでした: \`${untilRaw}\`（例: 2026-08-24 17:00）`);
+      }
+      if (activeFrom && activeUntil && new Date(activeFrom) >= new Date(activeUntil)) {
+        return await interaction.editReply("監視終了日時は開始日時より後に設定してください。");
+      }
+
+      const { data, error } = await supabaseService.addVocacolleKeyword({
+        keyword, target, activeFrom, activeUntil, note
+      });
+
+      if (error) {
+        const duplicated = error.code === '23505';
+        return await interaction.editReply(
+          duplicated
+            ? `\`${keyword}\` は既に同じ対象で登録されています。`
+            : "キーワードの登録に失敗しました。ログを確認してください。"
+        );
+      }
+
+      const targetLabel = target === 'artist' ? 'アーティスト名' : '曲名';
+      const embed = new EmbedBuilder()
+        .setTitle('ボカコレ監視キーワードを追加しました')
+        .setColor(parseInt(config.CHART_COLOR, 16))
+        .addFields(
+          { name: "ID", value: String(data.id), inline: true },
+          { name: "対象", value: targetLabel, inline: true },
+          { name: "キーワード", value: `\`${data.keyword}\``, inline: false },
+          { name: "監視開始", value: formatJst(data.active_from), inline: true },
+          { name: "監視終了", value: formatJst(data.active_until), inline: true }
+        )
+        .setFooter({ text: config.FOOTER_TEXT });
+
+      await interaction.editReply({ embeds: [embed] });
+    }
+
+    else if (commandName === 'vc_list') {
+      const [keywords, watchEnabled] = await Promise.all([
+        supabaseService.getVocacolleKeywords(true),
+        supabaseService.getVocacolleWatchEnabled()
+      ]);
+      const watchStateLine = `監視スケジュール: ${watchEnabled ? '**有効** (毎時5分に実行)' : '**無効** (/vc_toggle on で再開)'}`;
+
+      if (!keywords.length) {
+        return await interaction.editReply(`${watchStateLine}\n監視キーワードは登録されていません。`);
+      }
+
+      const vocacolle = require('./vocacolle');
+      const now = new Date();
+
+      const lines = keywords.map(k => {
+        const targetLabel = k.target === 'artist' ? 'アーティスト' : '曲名';
+        const state = vocacolle.isActive(k, now) ? '有効' : '期間外/停止中';
+        const period = (k.active_from || k.active_until)
+          ? `${formatJst(k.active_from)} 〜 ${formatJst(k.active_until)}`
+          : '常時';
+        return `**#${k.id}** [${targetLabel}] \`${k.keyword}\`\n　${state} / ${period}`;
+      });
+
+      let desc = `${watchStateLine}\n\n${lines.join('\n')}`;
+      if (desc.length > 4000) desc = desc.slice(0, 3900) + "\n... (省略されました)";
+
+      const embed = new EmbedBuilder()
+        .setTitle(`ボカコレ監視キーワード (${keywords.length}件)`)
+        .setColor(parseInt(config.CHART_COLOR, 16))
+        .setDescription(desc)
+        .setFooter({ text: config.FOOTER_TEXT });
+
+      await interaction.editReply({ embeds: [embed] });
+    }
+
+    else if (commandName === 'vc_remove') {
+      const id = interaction.options.getInteger('id');
+      const success = await supabaseService.removeVocacolleKeyword(id);
+      await interaction.editReply(success ? `監視キーワード #${id} を削除しました。` : "削除に失敗しました。");
+    }
+
+    else if (commandName === 'vc_check') {
+      await interaction.editReply("ボカコレランキングを確認しています...（/vc_toggle off 中でも実行します）");
+      const scheduler = require('./scheduler');
+      const result = await scheduler.runVocacolleWatch({ bypassToggle: true });
+      if (result.skipped === 'no_keywords') {
+        await interaction.followUp("監視キーワードが1件も登録されていません。/vc_add で登録してください。");
+      } else {
+        await interaction.followUp(
+          `確認完了: ${result.checked}件を照合し、ヒット ${result.hits}件 / 新規通知 ${result.notified}件でした。`
+        );
+      }
+    }
+
+    else if (commandName === 'vc_toggle') {
+      const state = interaction.options.getString('state');
+      const enabled = state === 'on';
+      const success = await supabaseService.setVocacolleWatchEnabled(enabled);
+
+      if (!success) {
+        return await interaction.editReply("設定の更新に失敗しました。ログを確認してください。");
+      }
+
+      await interaction.editReply(
+        enabled
+          ? `ボカコレ監視を **有効** にしました。次回は毎時5分（JST）に実行されます。`
+          : `ボカコレ監視を **無効** にしました。毎時のチェックはスキップされます（/vc_check は引き続き手動実行できます）。`
+      );
+    }
+
     } catch (err) {
     console.error("Command Error:", err);
-    
+
     // エラー通知チャンネルにも詳細を送信する（追加）
     await sendErrorEmbed(err, `🚨 Command Execution Error (/${commandName})`);
 
@@ -311,6 +499,36 @@ async function sendNotification(embedOrText) {
   }
 }
 
+/**
+ * 任意のチャンネルへ Embed と添付ファイルを送る（ボカコレ通知用）
+ * @param {object} params
+ * @param {string} params.channelId 送信先チャンネルID
+ * @param {EmbedBuilder} params.embed 送信するEmbed
+ * @param {Array<{buffer: Buffer, name: string}>} [params.files] 添付ファイル
+ */
+async function sendEmbedWithFiles({ channelId, embed, files = [] }) {
+  const targetId = channelId || config.DISCORD.CHANNEL_ID;
+  if (!targetId) {
+    console.error("[ERROR] 送信先チャンネルIDが設定されていません。");
+    return false;
+  }
+
+  try {
+    const channel = await client.channels.fetch(targetId);
+    if (!channel) {
+      console.error(`[ERROR] Channel not found for ID: ${targetId}`);
+      return false;
+    }
+
+    const attachments = files.map(f => new AttachmentBuilder(f.buffer, { name: f.name }));
+    await channel.send({ embeds: [embed], files: attachments });
+    return true;
+  } catch (error) {
+    console.error("[ERROR] Failed to send embed with files:", error);
+    return false;
+  }
+}
+
 async function sendErrorEmbed(error, title = "🚨 Runtime Error") {
   const errorMessage = error.stack || error.message || String(error);
   const embed = new EmbedBuilder()
@@ -318,7 +536,7 @@ async function sendErrorEmbed(error, title = "🚨 Runtime Error") {
     .setColor(0xff0000)
     .setDescription(`\`\`\`js\n${errorMessage.slice(0, 3900)}\n\`\`\``)
     .setTimestamp();
-  
+
   await sendNotification(embed);
 }
 
@@ -332,4 +550,4 @@ function startDiscordBot() {
   });
 }
 
-module.exports = { client, startDiscordBot, sendNotification, sendErrorEmbed };
+module.exports = { client, startDiscordBot, sendNotification, sendEmbedWithFiles, sendErrorEmbed };
