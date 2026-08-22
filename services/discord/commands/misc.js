@@ -20,7 +20,7 @@ async function help(interaction) {
     .setColor(parseInt(config.CHART_COLOR, 16))
     .setDescription(
       '自分（XENOGRAM）以外のニコニコアカウントも監視したい場合は `/user_add` で追加できます（複数人を同時監視可能）。\n' +
-      'マイルストーンの刻み幅・急上昇のしきい値・各定期チェックの実行時刻は `/settings` で確認、`/set_milestone` `/set_spike` `/set_rank_threshold` `/set_schedule` で変更できます（再起動不要）。'
+      'マイルストーンの刻み幅・急上昇のしきい値・各定期チェックの実行時刻は `/settings` で確認、`/set_milestone` `/set_spike` `/set_rank_threshold` `/set_schedule` で変更できます。'
     );
 
   const remaining = [...commands];

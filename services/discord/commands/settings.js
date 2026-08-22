@@ -102,7 +102,7 @@ async function set_schedule(interaction) {
     return await interaction.editReply(message);
   }
 
-  await interaction.editReply(`✅ スケジュールを \`${cronExpr}\` に変更しました（再起動不要・即時反映済み）。`);
+  await interaction.editReply(`✅ スケジュールを \`${cronExpr}\` に変更しました。`);
 }
 
 async function settings(interaction) {

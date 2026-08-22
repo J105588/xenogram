@@ -74,7 +74,7 @@ const commands = [
   { name: 'vc_check', description: '【管理者】ボカコレ監視を今すぐ1回実行します。' },
   {
     name: 'vc_toggle',
-    description: '【管理者】ボカコレ監視の有効/無効を切り替えます（再起動不要）。',
+    description: '【管理者】ボカコレ監視の有効/無効を切り替えます。',
     options: [{
       name: 'state', type: 3, description: '設定する状態', required: true,
       choices: [
@@ -118,7 +118,7 @@ const commands = [
   },
   {
     name: 'set_schedule',
-    description: '【管理者】各定期ジョブの実行時刻（cron式）を変更します（再起動不要）。',
+    description: '【管理者】各定期ジョブの実行時刻（cron式）を変更します。',
     options: [
       {
         name: 'job', type: 3, description: '対象ジョブ', required: true,
