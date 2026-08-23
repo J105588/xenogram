@@ -78,14 +78,22 @@ async function recordStats(videoId, views, comments, mylists, likes) {
 /**
  * グラフ・前日比用に、日次の統計履歴を取得する (直近7日分など)。
  * 各日の最後（＝最新）の記録だけを残して1日1点に間引く。
+ * updateVideoList が毎時記録を積み重ねるため、動画が古いほど video_stats の行数は
+ * 際限なく増える。以前は video_id 一致行を全件取得してからJS側で間引いていたため
+ * デイリーレポート実行のたびに全履歴をスキャンしていたが、必要なのは直近 limit 日分
+ * だけなので、まず recorded_at で絞ってから取得する（idx_video_stats_video_id_recorded_at
+ * が効く範囲検索になる）。
  */
 async function getStatsHistory(videoId, limit = 7) {
   try {
+    const bufferDays = limit + 2; // JST日境界のズレを吸収する余裕分
+    const since = new Date(Date.now() - bufferDays * 24 * 60 * 60 * 1000).toISOString();
+
     const rows = db.prepare(`
       SELECT views, recorded_at FROM video_stats
-      WHERE video_id = ?
+      WHERE video_id = ? AND recorded_at >= ?
       ORDER BY recorded_at ASC
-    `).all(videoId);
+    `).all(videoId, since);
 
     // 同じ日（JST）の行は後勝ちで上書きしていくことで、各日最後の値だけが残る
     const byDay = new Map();
