@@ -11,17 +11,15 @@ async function stats(interaction) {
 
   const latestDbStats = await dbService.getYesterdayStats(videoId);
   const diff = utils.calculateDiff(apiData, latestDbStats);
-  const history = await dbService.getStatsHistory(videoId);
 
-  // 最新データが「今日」のものでない場合のみ、現在のリアルタイム値をグラフの末尾に一時的に追加する
-  const todayStr = new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' });
-  const lastDateStr = history.length > 0
-    ? new Date(history[history.length - 1].recorded_at).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })
-    : null;
-
-  if (lastDateStr !== todayStr) {
-    history.push({ views: apiData.view, recorded_at: new Date().toISOString() });
+  // 監視中の動画なら、デイリーレポートや毎時のupdateVideoListと同じようにこの手動確認時点の値もDBへ記録する。
+  // こうしておくと手動チェックと自動レポートが同じ1本の履歴を積み上げるので、グラフに欠けが出ない
+  // （監視外の動画はvideosテーブルに行が無くFK制約で書き込めないため対象外）。
+  if (await dbService.hasVideo(videoId)) {
+    await dbService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
   }
+
+  const history = await dbService.getStatsHistory(videoId);
   const chartUrl = utils.generateChartUrl(history);
 
   const embed = new EmbedBuilder()
