@@ -89,8 +89,10 @@ async function getStatsHistory(videoId, limit = 7) {
     const bufferDays = limit + 2; // JST日境界のズレを吸収する余裕分
     const since = new Date(Date.now() - bufferDays * 24 * 60 * 60 * 1000).toISOString();
 
+    // views だけでなく全指標を返す。レポート側で「いいねの7日合計」等も出せるようにするため
+    // （呼び出し側が views しか見ない場合も、列が増えるぶんには影響しない）。
     const rows = db.prepare(`
-      SELECT views, recorded_at FROM video_stats
+      SELECT views, comments, mylists, likes, recorded_at FROM video_stats
       WHERE video_id = ? AND recorded_at >= ?
       ORDER BY recorded_at ASC
     `).all(videoId, since);
@@ -127,13 +129,13 @@ async function getRecentStatsHistory(videoId, hours = 24) {
 }
 
 /**
- * 全動画の最新の統計情報を取得する（ランキングや成長率計算用）。
+ * その鯖が監視中の全動画の最新の統計情報を取得する（ランキングや成長率計算用）。
  * 以前は動画本数ぶんSELECTを繰り返すN+1構成だったが、相関サブクエリで
  * 「動画ごとの最新video_stats行のid」を求めてJOINする1回のクエリにまとめた
  * （既存の idx_video_stats_video_id_recorded_at インデックスがそのまま効く）。
  * 返す形（[{video, stats}, ...]）と並び順（published_at降順・NULLは末尾）は変更していない。
  */
-async function getAllLatestStats() {
+async function getAllLatestStats(guildId) {
   try {
     const rows = db.prepare(`
       SELECT
@@ -142,11 +144,12 @@ async function getAllLatestStats() {
         vs.id AS stats_id, vs.video_id AS stats_video_id, vs.views, vs.comments,
         vs.mylists, vs.likes, vs.recorded_at
       FROM videos v
+      JOIN guild_videos gv ON gv.video_id = v.id AND gv.guild_id = ?
       JOIN video_stats vs ON vs.id = (
         SELECT id FROM video_stats WHERE video_id = v.id ORDER BY recorded_at DESC LIMIT 1
       )
       ORDER BY (v.published_at IS NULL), v.published_at DESC
-    `).all();
+    `).all(guildId);
 
     return rows.map((row) => ({
       video: {
@@ -173,8 +176,42 @@ async function getAllLatestStats() {
   }
 }
 
+/* ---------------------------------------------------------------------
+ * 鯖ごとの「最後に通知判定した時点の数値」。
+ * video_stats はグローバル共有なので、キリ番・急上昇の判定基準に使うと
+ * 先に走った鯖が最新値を書き込んだ時点で他の鯖が取りこぼす。
+ * 判定の基準値はこちらを使う（詳細は migrations/0002 のコメント）。
+ * ------------------------------------------------------------------- */
+
+async function getNotifyState(guildId, videoId) {
+  try {
+    const row = db.prepare('SELECT * FROM guild_video_notify_state WHERE guild_id = ? AND video_id = ?')
+      .get(guildId, videoId);
+    return row || null;
+  } catch (error) {
+    console.error("Error getting notify state:", error);
+    return null;
+  }
+}
+
+async function upsertNotifyState(guildId, videoId, { views, comments, mylists, likes }) {
+  try {
+    db.prepare(`
+      INSERT INTO guild_video_notify_state (guild_id, video_id, views, comments, mylists, likes, checked_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(guild_id, video_id) DO UPDATE SET
+        views = excluded.views, comments = excluded.comments,
+        mylists = excluded.mylists, likes = excluded.likes, checked_at = excluded.checked_at
+    `).run(guildId, videoId, views, comments, mylists, likes, new Date().toISOString());
+  } catch (error) {
+    console.error("Error upserting notify state:", error);
+  }
+}
+
 module.exports = {
   getLatestStats,
+  getNotifyState,
+  upsertNotifyState,
   getYesterdayStats,
   getStatsAsOf,
   recordStats,

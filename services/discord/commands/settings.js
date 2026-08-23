@@ -1,8 +1,9 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../../../config');
 const dbService = require('../../database');
+const { buildListMessage } = require('../editors');
 
-async function user_add(interaction) {
+async function user_add(interaction, { guildId }) {
   const userId = interaction.options.getString('user_id').trim();
   const label = interaction.options.getString('label');
 
@@ -10,88 +11,74 @@ async function user_add(interaction) {
     return await interaction.editReply('ユーザーIDは数字のみで指定してください（例: 143305795）。');
   }
 
-  const result = dbService.addNicoUser(userId, label);
+  const result = dbService.addNicoUser(guildId, userId, label);
   if (!result.ok) {
     return await interaction.editReply(
       result.reason === 'duplicate' ? `\`${userId}\` は既に登録されています。` : '追加に失敗しました。ログを確認してください。'
     );
   }
 
-  const all = dbService.getNicoUserIds();
+  const all = dbService.getNicoUserIds(guildId);
   await interaction.editReply(`✅ ニコニコユーザー \`${userId}\`${label ? `（${label}）` : ''} を監視対象に追加しました。現在 ${all.length}人を監視中です。`);
 }
 
-async function user_remove(interaction) {
+async function user_remove(interaction, { guildId }) {
   const userId = interaction.options.getString('user_id').trim();
-  const success = dbService.removeNicoUser(userId);
+  const success = dbService.removeNicoUser(guildId, userId);
   await interaction.editReply(
     success ? `🗑️ \`${userId}\` を監視対象から削除しました。` : `\`${userId}\` は登録されていません（/user_list で確認できます）。`
   );
 }
 
-async function user_list(interaction) {
-  const users = dbService.getNicoUsersDetailed();
-  const source = users.length && users[0].fromEnv ? '（.envのNICO_USER_IDSから）' : '（/user_add で登録）';
-
-  const lines = users.map(u => `• \`${u.user_id}\`${u.label ? ` — ${u.label}` : ''}`);
-  const embed = new EmbedBuilder()
-    .setTitle(`📡 監視中のニコニコユーザー (${users.length}人) ${source}`)
-    .setColor(parseInt(config.CHART_COLOR, 16))
-    .setDescription(lines.join('\n') || 'なし')
-    .addFields({
-      name: '別のユーザーを追加するには',
-      value: '`/user_add user_id:143305795 label:任意のメモ`\n一度追加すると、.envのNICO_USER_IDSより登録内容が優先されます。',
-      inline: false
-    })
-    .setFooter({ text: config.FOOTER_TEXT });
-
-  await interaction.editReply({ embeds: [embed] });
+// 一覧の中身とセレクトメニューは editors.js に集約（vc_list と同じ理由）
+async function user_list(interaction, { guildId }) {
+  await interaction.editReply(await buildListMessage('user', guildId, interaction.user.id));
 }
 
-async function set_milestone(interaction) {
+async function set_milestone(interaction, { guildId }) {
   const step = interaction.options.getInteger('step');
   if (!Number.isInteger(step) || step <= 0) {
     return await interaction.editReply('1以上の整数を指定してください。');
   }
-  dbService.setSetting('milestone_step', step);
+  dbService.setSetting(guildId, 'milestone_step', step);
   await interaction.editReply(`✅ マイルストーンの判定単位を **${step}** に変更しました（次回のチェックから反映されます）。`);
 }
 
-async function set_spike(interaction) {
+async function set_spike(interaction, { guildId }) {
   const threshold = interaction.options.getInteger('threshold');
   const cooldownHours = interaction.options.getInteger('cooldown_hours');
 
   if (!Number.isInteger(threshold) || threshold <= 0) {
     return await interaction.editReply('threshold は1以上の整数を指定してください。');
   }
-  dbService.setSetting('spike_view_threshold_per_hour', threshold);
+  dbService.setSetting(guildId, 'spike_view_threshold_per_hour', threshold);
 
   let msg = `✅ 急上昇のしきい値を **1時間あたり${threshold}再生** に変更しました。`;
   if (cooldownHours !== null) {
     if (!Number.isInteger(cooldownHours) || cooldownHours <= 0) {
       return await interaction.editReply('cooldown_hours は1以上の整数を指定してください。');
     }
-    dbService.setSetting('spike_cooldown_hours', cooldownHours);
+    dbService.setSetting(guildId, 'spike_cooldown_hours', cooldownHours);
     msg += `\nクールダウンを **${cooldownHours}時間** に変更しました。`;
   }
   await interaction.editReply(msg);
 }
 
-async function set_rank_threshold(interaction) {
+async function set_rank_threshold(interaction, { guildId }) {
   const positions = interaction.options.getInteger('positions');
   if (!Number.isInteger(positions) || positions <= 0) {
     return await interaction.editReply('1以上の整数を指定してください。');
   }
-  dbService.setSetting('vocacolle_rank_change_threshold', positions);
+  dbService.setSetting(guildId, 'vocacolle_rank_change_threshold', positions);
   await interaction.editReply(`✅ 順位変動通知のしきい値を **${positions}位** に変更しました。`);
 }
 
-async function set_schedule(interaction) {
+async function set_schedule(interaction, { guildId }) {
   const job = interaction.options.getString('job');
   const input = interaction.options.getString('cron').trim();
 
   const scheduler = require('../../scheduler');
-  const result = scheduler.rescheduleJob(job, input);
+  const result = scheduler.rescheduleJob(guildId, job, input);
 
   if (!result.ok) {
     if (result.reason === 'invalid_format') {
@@ -109,8 +96,8 @@ async function set_schedule(interaction) {
   await interaction.editReply(`✅ スケジュールを \`${result.cronExpr}\`（入力: \`${input}\`）に変更しました。`);
 }
 
-async function settings(interaction) {
-  const s = dbService.getAllSettingsWithSource();
+async function settings(interaction, { guildId }) {
+  const s = dbService.getAllSettingsWithSource(guildId);
   const byKey = Object.fromEntries(s.map(x => [x.key, x]));
 
   const format = (key, unit = '') => {
@@ -120,7 +107,7 @@ async function settings(interaction) {
   };
 
   const scheduler = require('../../scheduler');
-  const jobs = scheduler.listJobs();
+  const jobs = scheduler.listJobs(guildId);
 
   const embed = new EmbedBuilder()
     .setTitle('⚙️ 現在の設定')
@@ -168,7 +155,7 @@ const SCHEDULE_PRESETS = {
 async function autocompleteScheduleInput(interaction) {
   const scheduler = require('../../scheduler');
   const job = interaction.options.getString('job');
-  const def = scheduler.listJobs().find((j) => j.key === job);
+  const def = scheduler.listJobs(interaction.guildId).find((j) => j.key === job);
   const list = def ? SCHEDULE_PRESETS[def.scheduleShape] : Object.values(SCHEDULE_PRESETS).flat();
 
   const focused = (interaction.options.getFocused() || '').toLowerCase();
@@ -183,7 +170,7 @@ async function autocompleteScheduleInput(interaction) {
 // user_remove の user_id オプション用オートコンプリート
 async function autocompleteUserId(interaction) {
   const focused = interaction.options.getFocused().toLowerCase();
-  const users = dbService.getNicoUsersDetailed();
+  const users = dbService.getNicoUsersDetailed(interaction.guildId);
   const choices = users
     .filter((u) => u.user_id.includes(focused) || (u.label || '').toLowerCase().includes(focused))
     .slice(0, 25)

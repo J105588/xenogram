@@ -62,13 +62,14 @@ async function fetchUserVideos(userId) {
 }
 
 /**
- * 監視対象の全ユーザーぶんをまとめて取得する。
- * ユーザーIDは /user_add 等で登録されたもの（DB）を優先し、未登録なら
- * config.NICO_USER_IDS（環境変数 NICO_USER_IDS）にフォールバックする。
+ * その鯖が監視対象にしているユーザーぶんをまとめて取得する。
+ * ユーザーIDは /user_add で登録されたもの（DB・鯖ごと）だけを使う。
+ * 未登録の鯖は空配列が返り、APIも一切叩かない
+ * （Botを入れただけのサーバーが勝手に誰かを監視し始めないようにするため）。
  */
-async function fetchAllUserVideos() {
+async function fetchAllUserVideos(guildId) {
   const dbService = require('./database');
-  const userIds = dbService.getNicoUserIds();
+  const userIds = dbService.getNicoUserIds(guildId);
   const results = await Promise.all(userIds.map((userId) => fetchUserVideos(userId)));
   return results.flat();
 }
@@ -76,8 +77,8 @@ async function fetchAllUserVideos() {
 /**
  * 新着検知用に { link, title } の形だけを返す（fetchAllUserVideos の薄いラッパー）
  */
-async function getRssItems() {
-  const videos = await fetchAllUserVideos();
+async function getRssItems(guildId) {
+  const videos = await fetchAllUserVideos(guildId);
   return videos.map((video) => ({
     link: `https://www.nicovideo.jp/watch/${video.id}`,
     title: video.title,

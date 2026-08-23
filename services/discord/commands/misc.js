@@ -14,10 +14,14 @@ const CATEGORIES = [
   { key: 'vocacolle', emoji: '🎯', label: 'ボカコレ/ランキング監視', match: (n) => n.startsWith('vc_') },
   { key: 'twitter', emoji: '🐦', label: 'X(Twitter)キーワード監視（読み取り専用）', match: (n) => n.startsWith('x_') },
   { key: 'users', emoji: '📡', label: '監視対象ユーザー（複数のニコニコアカウントを追う）', match: (n) => n.startsWith('user_') },
+  { key: 'guild', emoji: '', label: 'サーバーごとの設定（通知先・データ引き継ぎ）', match: (n) => n.startsWith('guild_') },
   { key: 'config', emoji: '⚙️', label: '動作の細かい調整', match: (n) => n.startsWith('set_') || n === 'settings' },
   { key: 'admin', emoji: '🔧', label: '管理・実行', match: (n) => ['force_update', 'daily_report', 'restart', 'status', 'logs'].includes(n) },
   { key: 'misc', emoji: '💬', label: 'その他', match: () => true },
 ];
+
+/** アイコン付きのカテゴリ名。アイコンを持たないカテゴリで先頭に空白が残らないようにする */
+const categoryTitle = (c) => `${c.emoji} ${c.label}`.trim();
 
 const HELP_TIMEOUT_MS = 5 * 60 * 1000; // このメニューは5分間操作が無いと自動的に閉じる（無効化される）
 
@@ -42,7 +46,7 @@ function groupCommandsByCategory() {
 function buildOverviewEmbed(grouped) {
   const summaryLines = CATEGORIES
     .filter((c) => grouped.get(c.key).length)
-    .map((c) => `${c.emoji} **${c.label}** — ${grouped.get(c.key).length}個`);
+    .map((c) => `${categoryTitle(c)} — ${grouped.get(c.key).length}個`);
 
   return new EmbedBuilder()
     .setTitle('📚 XENOGRAM コマンド一覧')
@@ -55,6 +59,8 @@ function buildOverviewEmbed(grouped) {
       name: '💡 知っておくと便利な機能',
       value:
         '・動画ID等の入力項目は、打ち始めると候補が自動で出ます（コピペ不要）\n' +
+        '・`/vc_list` `/x_list` `/user_list` は、一覧のメニューから項目を選ぶとその場で編集できます\n' +
+        '・監視対象・設定・実行時刻は**サーバーごとに独立**しています（通知先の指定は `/guild_setup`）\n' +
         '・現在の設定値は `/settings`、稼働状況は `/status` で確認できます\n' +
         '・サーバー機のログは `/logs` でこの場に呼び出せます（管理者限定）',
       inline: false,
@@ -65,7 +71,7 @@ function buildOverviewEmbed(grouped) {
 function buildCategoryEmbed(category, cmds) {
   const value = cmds.map((cmd) => `**\`/${cmd.name}\`**\n${cmd.description}`).join('\n\n');
   return new EmbedBuilder()
-    .setTitle(`${category.emoji} ${category.label}`)
+    .setTitle(categoryTitle(category))
     .setColor(parseInt(config.CHART_COLOR, 16))
     .setDescription(value)
     .setFooter({ text: '他のカテゴリを見るには、下のメニューから選び直してください' });
@@ -78,7 +84,7 @@ function buildCategoryMenu(selectedKey, grouped, { disabled = false } = {}) {
     .setDisabled(disabled)
     .addOptions(
       CATEGORIES.filter((c) => grouped.get(c.key).length).map((c) => ({
-        label: `${c.emoji} ${c.label}`,
+        label: categoryTitle(c),
         value: c.key,
         description: `${grouped.get(c.key).length}個のコマンド`,
         default: c.key === selectedKey,
@@ -126,15 +132,15 @@ async function ping(interaction, { client }) {
   await interaction.editReply(`🏓 Pong! Latency is ${ping}ms. API Latency is ${Math.round(client.ws.ping)}ms`);
 }
 
-async function status(interaction) {
+async function status(interaction, { guildId }) {
   const os = require('os');
   const scheduler = require('../../scheduler');
 
-  const [videos, keywords, watchEnabled] = await Promise.all([
-    dbService.getAllVideos(),
-    dbService.getVocacolleKeywords(),
-    dbService.getVocacolleWatchEnabled()
-  ]);
+  // 「トグルが有効か」ではなく「実際に動く状態か」を出す。
+  // 新規サーバーは何も登録されていない＝どの機能も動かないのが正しい状態なので、
+  // 登録0件なのに「有効」と表示すると、動いていないことに気づけない。
+  const status = dbService.getGuildFeatureStatus(guildId);
+  const videos = await dbService.getAllVideos(guildId);
 
   const lastRun = scheduler.getSchedulerStatus();
   const formatLastRun = (iso) => (iso ? formatJst(iso) : '（再起動後まだ未実行）');
@@ -143,17 +149,34 @@ async function status(interaction) {
   const twitterFields = [];
   if (config.TWITTER_MONITOR.ENABLED) {
     const twitterCli = require('../../twitterCli');
-    const [twitterKeywords, twitterEnabled, cliAvailable] = await Promise.all([
-      dbService.getTwitterKeywords(),
-      dbService.getTwitterMonitorEnabled(),
-      twitterCli.isCliAvailable(),
-    ]);
-    const twitterLine = `${twitterEnabled ? '有効' : '無効'} / キーワード${twitterKeywords.length}件 / twitter-cli: ${cliAvailable ? '検出済み' : '未検出'}`;
+    const cliAvailable = await twitterCli.isCliAvailable();
+    const state = status.twitter.active
+      ? '稼働中'
+      : status.twitter.keywords === 0 ? '未設定（キーワード0件）'
+        : !status.twitter.enabled ? '停止中（/x_toggle off）'
+          : '停止中（通知先が未設定）';
     twitterFields.push(
-      { name: 'X(Twitter)監視', value: twitterLine, inline: true },
+      { name: 'X(Twitter)監視', value: `${state} / キーワード${status.twitter.keywords}件 / twitter-cli: ${cliAvailable ? '検出済み' : '未検出'}`, inline: true },
       { name: 'X(Twitter)監視 最終実行', value: formatLastRun(lastRun.twitterWatch), inline: false }
     );
   }
+
+  // 通知先が未設定だと定期レポートが一切届かないので、ここで気づけるようにする
+  const notifyChannelLine = status.notifyChannel
+    ? `<#${status.notifyChannel}>`
+    : '**未設定**（/guild_setup で指定するまで、このサーバーには通知が届きません）';
+
+  const videoWatchLine = status.video.active
+    ? `稼働中（投稿者${status.video.users}人 / 個別登録${status.video.videos}本）`
+    : status.notifyChannel
+      ? '未設定（/user_add または /add で監視対象を登録してください）'
+      : '未設定（通知先も監視対象も未登録）';
+
+  const vocacolleLine = status.vocacolle.active
+    ? '稼働中'
+    : status.vocacolle.keywords === 0 ? '未設定（キーワード0件）'
+      : !status.vocacolle.enabled ? '停止中（/vc_toggle off）'
+        : '停止中（通知先が未設定）';
 
   const mem = process.memoryUsage();
   const uptimeSec = Math.floor(process.uptime());
@@ -169,8 +192,10 @@ async function status(interaction) {
       { name: '起動時間', value: `${h}時間${m}分${s}秒`, inline: true },
       { name: 'メモリ (RSS)', value: `${Math.round(mem.rss / 1024 / 1024)}MB`, inline: true },
       { name: '監視動画数', value: `${videos.length}本`, inline: true },
-      { name: 'ボカコレキーワード', value: `${keywords.length}件`, inline: true },
-      { name: 'ボカコレ監視', value: watchEnabled ? '有効' : '無効', inline: true },
+      { name: 'ボカコレキーワード', value: `${status.vocacolle.keywords}件`, inline: true },
+      { name: 'ボカコレ監視', value: vocacolleLine, inline: true },
+      { name: 'このサーバーの通知先', value: notifyChannelLine, inline: false },
+      { name: '動画の監視', value: videoWatchLine, inline: false },
       ...twitterFields,
       { name: '毎時 新着/キリ番チェック 最終実行', value: formatLastRun(lastRun.updateVideoList), inline: false },
       { name: '毎朝 デイリーレポート 最終実行', value: formatLastRun(lastRun.reportEachVideoStats), inline: false },

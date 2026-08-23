@@ -4,7 +4,6 @@ process.env.TZ = 'Asia/Tokyo';
 const express = require('express');
 const config = require('./config');
 const { startDiscordBot } = require('./services/discord');
-const { startScheduler } = require('./services/scheduler');
 const { reapOrphanedChromeProcesses } = require('./services/browser');
 
 console.log("🔍 Checking Environment Variables on Startup:");
@@ -27,13 +26,14 @@ app.listen(PORT, () => {
   // 前回セッションの残骸（ゾンビ化したChromium）を掃除してから起動する
   reapOrphanedChromeProcesses().catch((e) => console.warn('[BROWSER] 起動時クリーンアップでエラー:', e.message));
 
-  // Discord Botとスケジューラーの起動
+  // Discord Botの起動。
+  // スケジューラは「どのサーバーに入っているか」が分かってからでないと
+  // 鯖ごとのcronを張れないため、ログイン完了後（clientReady）に起動する。
   startDiscordBot();
-  startScheduler();
 });
 
 // グローバルな例外処理
-const { sendErrorEmbed, sendNotification } = require('./services/discord');
+const { sendErrorEmbed, broadcastNotification } = require('./services/discord');
 
 process.on('uncaughtException', async (error) => {
   console.error('Uncaught Exception:', error);
@@ -53,7 +53,7 @@ async function gracefulShutdown(signal) {
   shuttingDown = true;
   console.log(`${signal} を受信しました。シャットダウンします...`);
   try {
-    await sendNotification(`🔴 Bot停止します（${signal}）`);
+    await broadcastNotification(`🔴 Bot停止します（${signal}）`);
   } catch (e) {
     console.error('停止通知の送信に失敗しました:', e.message);
   }

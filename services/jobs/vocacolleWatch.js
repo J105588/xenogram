@@ -13,7 +13,7 @@ const { withSingleFlight } = require('../singleFlight');
  * 新規ヒット（まだ vocacolle_detections に行が無い）はここでは何もしない
  * （前回値が無いので比較しようがない。次回のチェックから対象になる）。
  */
-async function checkRankChanges(matches, ranking) {
+async function checkRankChanges(guildId, matches, ranking) {
   for (const { keyword, item } of matches) {
     if (!item.watchId) continue;
 
@@ -21,7 +21,7 @@ async function checkRankChanges(matches, ranking) {
     if (prevRank === null) continue; // 新規ヒットでまだ記録が無い
 
     const delta = prevRank - item.rank; // 正: 順位上昇（数字が小さくなった）, 負: 順位下降
-    if (Math.abs(delta) >= dbService.getSetting('vocacolle_rank_change_threshold')) {
+    if (Math.abs(delta) >= dbService.getSetting(guildId, 'vocacolle_rank_change_threshold')) {
       const direction = delta > 0 ? '上昇' : '下降';
       const arrow = delta > 0 ? '🔺' : '🔻';
       const embed = new EmbedBuilder()
@@ -38,7 +38,7 @@ async function checkRankChanges(matches, ranking) {
         .setTimestamp();
       if (item.thumbnail) embed.setThumbnail(item.thumbnail);
 
-      await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files: [] });
+      await discordService.sendEmbedWithFiles({ guildId, kind: 'vocacolle', embed, files: [] });
     }
 
     await dbService.touchVocacolleDetection(keyword.id, ranking.pageId, item.watchId, {
@@ -54,7 +54,7 @@ async function checkRankChanges(matches, ranking) {
  * 仕組みは他のニコニコ内ランキングにも使えるため、複数URLを扱えるようループの1反復として
  * 独立させてある（呼び出し元の runVocacolleWatchInner が config.VOCACOLLE.RANKING_URLS 分だけ呼ぶ）。
  */
-async function checkOnePage(url, keywords, { force, notifySummary, summaryScreenshot }) {
+async function checkOnePage(guildId, url, keywords, { force, notifySummary, summaryScreenshot }) {
   const ranking = await vocacolle.fetchRanking(url, {
     getCachedSource: (pageId) => dbService.getVocacolleRankingSource(pageId),
     setCachedSource: (pageId, source) => dbService.upsertVocacolleRankingSource(pageId, source)
@@ -128,7 +128,7 @@ async function checkOnePage(url, keywords, { force, notifySummary, summaryScreen
           embed.addFields({ name: "注意", value: "スクリーンショットの取得に失敗しました。", inline: false });
         }
 
-        const sent = await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embed, files });
+        const sent = await discordService.sendEmbedWithFiles({ guildId, kind: 'vocacolle', embed, files });
         if (sent) notified += 1;
 
         if (!force) {
@@ -216,7 +216,7 @@ async function checkOnePage(url, keywords, { force, notifySummary, summaryScreen
       }
     }
 
-    await discordService.sendEmbedWithFiles({ channelId: config.VOCACOLLE.CHANNEL_ID, embeds: embedsToSend, files });
+    await discordService.sendEmbedWithFiles({ guildId, kind: 'vocacolle', embeds: embedsToSend, files });
   }
 
   return { checked: ranking.items.length, hits: matches.length, notified, rankingTitle: ranking.title };
@@ -234,14 +234,15 @@ async function checkOnePage(url, keywords, { force, notifySummary, summaryScreen
  * @param {boolean} [options.summaryScreenshot] false を渡すとサマリーのスクショを省略する（既定は true）
  * @returns {Promise<{checked: number, hits: number, notified: number, rankingTitle: string, skipped?: string}>}
  */
-async function runVocacolleWatch(options = {}) {
+async function runVocacolleWatch(guildId, options = {}) {
   const { force = false, bypassToggle = false, notifySummary = false, summaryScreenshot = true } = options;
 
   // 同時に複数のChromiumが立ち上がると無駄にメモリを食い、
   // ランキングページへの同時アクセスも増えるため、常に1本だけ走らせる。
-  // （毎時の自動実行中に手動 /vc_check を叩いた場合などを弾く）
+  // Chromiumはプロセス全体で共有する資源なので、ロックのキーは鯖で分けず
+  // Bot全体で1本にする（鯖ごとに並走させるとメモリを一気に食う）。
   const outcome = await withSingleFlight('vocacolleWatch', () =>
-    runVocacolleWatchInner({ force, bypassToggle, notifySummary, summaryScreenshot })
+    runVocacolleWatchInner(guildId, { force, bypassToggle, notifySummary, summaryScreenshot })
   );
   if (!outcome.ok) {
     console.warn("[VOCACOLLE] 前回の実行がまだ完了していないため、今回はスキップします");
@@ -250,20 +251,27 @@ async function runVocacolleWatch(options = {}) {
   return outcome.result;
 }
 
-async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summaryScreenshot }) {
-  console.log("Running vocacolle ranking watch...");
+async function runVocacolleWatchInner(guildId, { force, bypassToggle, notifySummary, summaryScreenshot }) {
+  console.log(`Running vocacolle ranking watch... (guild: ${guildId})`);
+
+  // 通知先が未設定なら、ランキング取得もスクショ撮影も無駄になる。
+  // Chromiumを起動する前に打ち切る。
+  if (!dbService.resolveChannelId(guildId, 'vocacolle')) {
+    console.log(`[VOCACOLLE] 通知先チャンネルが未設定のためスキップします (guild: ${guildId})`);
+    return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'no_channel' };
+  }
 
   if (!bypassToggle) {
-    const enabled = await dbService.getVocacolleWatchEnabled();
+    const enabled = await dbService.getVocacolleWatchEnabled(guildId);
     if (!enabled) {
-      console.log("[VOCACOLLE] /vc_toggle off により無効化されているため処理をスキップします");
+      console.log(`[VOCACOLLE] /vc_toggle off により無効化されているため処理をスキップします (guild: ${guildId})`);
       return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'disabled' };
     }
   }
 
-  const keywords = await dbService.getVocacolleKeywords();
+  const keywords = await dbService.getVocacolleKeywords(guildId);
   if (!keywords.length) {
-    console.log("[VOCACOLLE] 有効な監視キーワードが未登録のため処理をスキップします");
+    console.log(`[VOCACOLLE] 有効な監視キーワードが未登録のため処理をスキップします (guild: ${guildId})`);
     return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'no_keywords' };
   }
 
@@ -274,7 +282,7 @@ async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summ
 
   for (const url of config.VOCACOLLE.RANKING_URLS) {
     try {
-      const result = await checkOnePage(url, keywords, { force, notifySummary, summaryScreenshot });
+      const result = await checkOnePage(guildId, url, keywords, { force, notifySummary, summaryScreenshot });
       totalChecked += result.checked;
       totalHits += result.hits;
       totalNotified += result.notified;

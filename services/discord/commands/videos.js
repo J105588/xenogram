@@ -1,47 +1,42 @@
 const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const config = require('../../../config');
 const { fetchNicoData } = require('../../niconico');
 const dbService = require('../../database');
 const utils = require('../../../utils');
+const { buildVideoStatsEmbed } = require('../../reports/videoEmbed');
 
-async function stats(interaction) {
+async function stats(interaction, { guildId }) {
   const videoId = interaction.options.getString('video_id');
   const apiData = await fetchNicoData(videoId);
   if (!apiData) return await interaction.editReply(`❌ 動画ID ${videoId} のデータが取得できませんでした。`);
 
-  const latestDbStats = await dbService.getYesterdayStats(videoId);
-  const diff = utils.calculateDiff(apiData, latestDbStats);
+  const previous = await dbService.getYesterdayStats(videoId);
 
   // 監視中の動画なら、デイリーレポートや毎時のupdateVideoListと同じようにこの手動確認時点の値もDBへ記録する。
   // こうしておくと手動チェックと自動レポートが同じ1本の履歴を積み上げるので、グラフに欠けが出ない
   // （監視外の動画はvideosテーブルに行が無くFK制約で書き込めないため対象外）。
-  if (await dbService.hasVideo(videoId)) {
+  if (await dbService.hasVideo(guildId, videoId)) {
     await dbService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
   }
 
-  const history = await dbService.getStatsHistory(videoId);
-  const chartUrl = utils.generateChartUrl(history);
+  // レポートと同じEmbedを使う（表示が2種類あると数字の読み方も2通りになってしまうため）
+  const embed = buildVideoStatsEmbed({
+    videoId,
+    title: apiData.title,
+    thumbnail: apiData.thumbnail,
+    tags: apiData.tags,
+    current: apiData,
+    previous,
+    history: await dbService.getStatsHistory(videoId, 7),
+    diffHeader: 'vs 1d',
+    titlePrefix: 'Analytics',
+    milestoneStep: dbService.getSetting(guildId, 'milestone_step'),
+  });
 
-  const embed = new EmbedBuilder()
-    .setTitle(utils.truncate(`Analytics: ${apiData.title}`, 256))
-    .setURL(`https://www.nicovideo.jp/watch/${videoId}`)
-    .setColor(parseInt(config.CHART_COLOR, 16))
-    .setThumbnail(apiData.thumbnail)
-    .addFields(
-      { name: "Views", value: `**${apiData.view.toLocaleString()}** (${utils.formatDiff(diff.view)})`, inline: true },
-      { name: "Likes", value: `**${apiData.like.toLocaleString()}** (${utils.formatDiff(diff.like)})`, inline: true },
-      { name: "Mylist", value: `**${apiData.mylist.toLocaleString()}** (${utils.formatDiff(diff.mylist)})`, inline: true },
-      { name: "Comments", value: `**${apiData.comment.toLocaleString()}** (${utils.formatDiff(diff.comment)})`, inline: true },
-      { name: "Tags", value: `\`${apiData.tags}\``, inline: false }
-    )
-    .setFooter({ text: config.FOOTER_TEXT }).setTimestamp();
-
-  if (chartUrl) embed.setImage(chartUrl);
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function list(interaction) {
-  const videos = await dbService.getAllVideos();
+async function list(interaction, { guildId }) {
+  const videos = await dbService.getAllVideos(guildId);
   if (!videos.length) return await interaction.editReply("現在監視中の動画はありません。");
   const embed = new EmbedBuilder().setTitle(`📺 監視中リスト (${videos.length}本)`).setColor(0x3498db);
   let desc = videos.map(v => `• [${v.id}](https://www.nicovideo.jp/watch/${v.id}) : ${v.title}`).join('\n');
@@ -51,29 +46,33 @@ async function list(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function add(interaction, { client }) {
+async function add(interaction, { client, guildId }) {
   const videoId = interaction.options.getString('video_id');
-  const exists = await dbService.hasVideo(videoId);
+  const exists = await dbService.hasVideo(guildId, videoId);
   if (exists) return await interaction.editReply(`⚠️ ${videoId} は既に監視リストに存在します。`);
 
   const apiData = await fetchNicoData(videoId);
   if (!apiData) return await interaction.editReply(`❌ 動画が見つかりませんでした。`);
 
-  await dbService.addVideo(videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
+  await dbService.addVideo(guildId, videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
   await dbService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
+  // 過去のキリ番を遡って一斉通知しないよう、この鯖の通知基準値も現在値で初期化する
+  await dbService.upsertNotifyState(guildId, videoId, {
+    views: apiData.view, comments: apiData.comment, mylists: apiData.mylist, likes: apiData.like,
+  });
   await interaction.editReply(`✅ **${apiData.title}** (${videoId}) を監視リストに追加しました！`);
 
-  const videos = await dbService.getAllVideos();
-  client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });
+  const watched = await dbService.getAllWatchedVideoIds();
+  client.user.setActivity(`${watched.length}本の動画を監視中`, { type: 3 });
 }
 
-async function remove(interaction, { client }) {
+async function remove(interaction, { client, guildId }) {
   const videoId = interaction.options.getString('video_id');
-  const success = await dbService.removeVideo(videoId);
+  const success = await dbService.removeVideo(guildId, videoId);
   if (success) {
     await interaction.editReply(`🗑️ ${videoId} を監視リストから削除しました。`);
-    const videos = await dbService.getAllVideos();
-    client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });
+    const watched = await dbService.getAllWatchedVideoIds();
+    client.user.setActivity(`${watched.length}本の動画を監視中`, { type: 3 });
   } else {
     await interaction.editReply(`❌ 削除に失敗しました。`);
   }
@@ -133,21 +132,34 @@ async function compare(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function force_update(interaction) {
+async function force_update(interaction, { guildId }) {
   await interaction.editReply("⏳ updateVideoList (1時間毎の処理) を実行中です...");
   const scheduler = require('../../scheduler');
-  const result = await scheduler.updateVideoList();
-  await interaction.followUp(
-    result && result.skipped === 'already_running'
-      ? "⚠️ 前回の更新処理がまだ終わっていないため、今回はスキップしました。少し待ってからもう一度お試しください。"
-      : "✅ 手動更新処理が完了しました。"
-  );
+  const result = await scheduler.updateVideoList(guildId);
+
+  const skipped = result && result.skipped;
+  let message;
+  if (skipped === 'already_running') {
+    message = "⚠️ 前回の更新処理がまだ終わっていないため、今回はスキップしました。少し待ってからもう一度お試しください。";
+  } else if (skipped === 'not_configured') {
+    // 新規サーバーは完全に空の状態から始まるので、何を登録すれば動き出すかを示す
+    const status = dbService.getGuildFeatureStatus(guildId);
+    message = [
+      'このサーバーではまだ監視対象が設定されていないため、何も実行されませんでした。',
+      ...(status.notifyChannel ? [] : ['・通知先を決める: `/guild_setup channel:#チャンネル`']),
+      '・投稿者を追う: `/user_add user_id:<数字>`',
+      '・個別の動画を追う: `/add video_id:<sm...>`',
+    ].join('\n');
+  } else {
+    message = "✅ 手動更新処理が完了しました。";
+  }
+  await interaction.followUp(message);
 }
 
-async function daily_report(interaction) {
+async function daily_report(interaction, { guildId }) {
   await interaction.editReply("⏳ デイリーレポートを実行し、通知チャンネルに送信しています...");
   const scheduler = require('../../scheduler');
-  const result = await scheduler.reportEachVideoStats();
+  const result = await scheduler.reportEachVideoStats(guildId);
   await interaction.followUp(
     result && result.skipped === 'already_running'
       ? "⚠️ 前回のデイリーレポートがまだ終わっていないため、今回はスキップしました。少し待ってからもう一度お試しください。"
@@ -155,9 +167,9 @@ async function daily_report(interaction) {
   );
 }
 
-async function ranking(interaction) {
+async function ranking(interaction, { guildId }) {
   const type = interaction.options.getString('type');
-  const allStats = await dbService.getAllLatestStats();
+  const allStats = await dbService.getAllLatestStats(guildId);
   allStats.sort((a, b) => (b.stats[type] || 0) - (a.stats[type] || 0));
   const top10 = allStats.slice(0, 10);
 
@@ -167,8 +179,8 @@ async function ranking(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function growth(interaction) {
-  const videos = await dbService.getAllVideos();
+async function growth(interaction, { guildId }) {
+  const videos = await dbService.getAllVideos(guildId);
 
   // パフォーマンス最適化: 非同期処理の並列化
   const growthPromises = videos.map(async (v) => {
@@ -190,12 +202,13 @@ async function growth(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function upcoming(interaction) {
-  const allStats = await dbService.getAllLatestStats();
+async function upcoming(interaction, { guildId }) {
+  const allStats = await dbService.getAllLatestStats(guildId);
+  const milestoneStep = dbService.getSetting(guildId, 'milestone_step');
   let upcomings = [];
   for (const item of allStats) {
-    const upView = utils.getUpcomingMilestone(item.stats.views, 100);
-    const upLike = utils.getUpcomingMilestone(item.stats.likes, 100);
+    const upView = utils.getUpcomingMilestone(item.stats.views, milestoneStep);
+    const upLike = utils.getUpcomingMilestone(item.stats.likes, milestoneStep);
     if (upView.remaining <= 20) {
       upcomings.push(`[${item.video.title}](https://www.nicovideo.jp/watch/${item.video.id}) - **${upView.nextMilestone}** 再生まであと **${upView.remaining}**！`);
     }
@@ -208,8 +221,8 @@ async function upcoming(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function exportCsv(interaction) {
-  const allStats = await dbService.getAllLatestStats();
+async function exportCsv(interaction, { guildId }) {
+  const allStats = await dbService.getAllLatestStats(guildId);
   let csv = "ID,Title,Views,Likes,Mylists,Comments,LastUpdated\n";
   allStats.forEach(item => {
     csv += `${item.video.id},"${item.video.title.replace(/"/g, '""')}",${item.stats.views},${item.stats.likes},${item.stats.mylists},${item.stats.comments},${item.stats.recorded_at}\n`;
@@ -224,7 +237,7 @@ async function exportCsv(interaction) {
 // IDを手打ち・コピペせずに済むよう、ID・タイトルの部分一致で候補を出す。
 async function autocompleteVideoId(interaction) {
   const focused = interaction.options.getFocused().toLowerCase();
-  const videos = await dbService.getAllVideos();
+  const videos = await dbService.getAllVideos(interaction.guildId);
   const choices = videos
     .filter((v) => v.id.toLowerCase().includes(focused) || (v.title || '').toLowerCase().includes(focused))
     .slice(0, 25)

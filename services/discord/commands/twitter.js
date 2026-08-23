@@ -1,8 +1,9 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../../../config');
 const dbService = require('../../database');
+const { buildListMessage } = require('../editors');
 
-async function x_add(interaction) {
+async function x_add(interaction, { guildId }) {
   const query = interaction.options.getString('query').trim();
   const note = interaction.options.getString('note');
 
@@ -13,7 +14,7 @@ async function x_add(interaction) {
     );
   }
 
-  const result = dbService.addTwitterKeyword(query, note);
+  const result = dbService.addTwitterKeyword(guildId, query, note);
   if (!result.ok) {
     return await interaction.editReply(
       result.reason === 'duplicate' ? `\`${query}\` は既に登録されています。` : '追加に失敗しました。ログを確認してください。'
@@ -33,39 +34,18 @@ async function x_add(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function x_list(interaction) {
-  const keywords = dbService.getTwitterKeywords(true);
-  const watchEnabled = dbService.getTwitterMonitorEnabled();
-  const configEnabled = config.TWITTER_MONITOR.ENABLED;
-
-  const stateLine = !configEnabled
-    ? '監視状態: **未セットアップ**（TWITTER_MONITOR_ENABLED=false。.env設定とtwitter-cliのセットアップが必要）'
-    : `監視スケジュール: ${watchEnabled ? '**有効**' : '**無効** (/x_toggle on で再開)'}`;
-
-  if (!keywords.length) {
-    return await interaction.editReply(`${stateLine}\n監視キーワードは登録されていません。`);
-  }
-
-  const lines = keywords.map((k) => `**#${k.id}** \`${k.query}\`${k.enabled ? '' : '（無効）'}${k.note ? ` — ${k.note}` : ''}`);
-  let desc = `${stateLine}\n\n${lines.join('\n')}`;
-  if (desc.length > 4000) desc = desc.slice(0, 3900) + '\n... (省略されました)';
-
-  const embed = new EmbedBuilder()
-    .setTitle(`X 監視キーワード (${keywords.length}件)`)
-    .setColor(0x1d9bf0)
-    .setDescription(desc)
-    .setFooter({ text: config.FOOTER_TEXT });
-
-  await interaction.editReply({ embeds: [embed] });
+// 一覧の中身とセレクトメニューは editors.js に集約（vc_list と同じ理由）
+async function x_list(interaction, { guildId }) {
+  await interaction.editReply(await buildListMessage('x', guildId, interaction.user.id));
 }
 
-async function x_remove(interaction) {
+async function x_remove(interaction, { guildId }) {
   const id = interaction.options.getInteger('id');
-  const success = dbService.removeTwitterKeyword(id);
+  const success = dbService.removeTwitterKeyword(guildId, id);
   await interaction.editReply(success ? `🗑️ X監視キーワード #${id} を削除しました。` : '削除に失敗しました。');
 }
 
-async function x_check(interaction) {
+async function x_check(interaction, { guildId }) {
   if (!config.TWITTER_MONITOR.ENABLED) {
     return await interaction.editReply(
       '⚠️ X監視は現在無効です（TWITTER_MONITOR_ENABLED=false）。.env の設定とtwitter-cliのセットアップを確認してください。'
@@ -74,9 +54,13 @@ async function x_check(interaction) {
 
   await interaction.editReply('Xを検索しています…（/x_toggle off 中でも実行します）');
   const scheduler = require('../../scheduler');
-  const result = await scheduler.runTwitterWatch({ bypassToggle: true });
+  const result = await scheduler.runTwitterWatch(guildId, { bypassToggle: true });
 
-  if (result.skipped === 'already_running') {
+  if (result.skipped === 'no_channel') {
+    await interaction.followUp(
+      '通知先チャンネルが未設定のため実行しませんでした。\nまず `/guild_setup channel:#チャンネル` で通知先を指定してください。'
+    );
+  } else if (result.skipped === 'already_running') {
     await interaction.followUp('前回の確認処理がまだ終わっていません。少し待ってからもう一度お試しください。');
   } else if (result.skipped === 'no_keywords') {
     await interaction.followUp('監視キーワードが1件も登録されていません。/x_add で登録してください。');
@@ -96,10 +80,10 @@ async function x_check(interaction) {
   }
 }
 
-async function x_toggle(interaction) {
+async function x_toggle(interaction, { guildId }) {
   const state = interaction.options.getString('state');
   const enabled = state === 'on';
-  const success = dbService.setTwitterMonitorEnabled(enabled);
+  const success = dbService.setTwitterMonitorEnabled(guildId, enabled);
 
   if (!success) {
     return await interaction.editReply('設定の更新に失敗しました。ログを確認してください。');
@@ -113,7 +97,7 @@ async function x_toggle(interaction) {
 }
 
 async function autocompleteKeywordId(interaction) {
-  const keywords = dbService.getTwitterKeywords(true);
+  const keywords = dbService.getTwitterKeywords(interaction.guildId, true);
   const choices = keywords.slice(0, 25).map((k) => ({
     name: `#${k.id} ${k.query}`.slice(0, 100),
     value: Number(k.id),

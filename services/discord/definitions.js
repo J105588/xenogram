@@ -79,7 +79,7 @@ const commands = [
       { name: 'note', type: 3, description: 'メモ', required: false }
     ]
   },
-  { name: 'vc_list', description: 'ボカコレ監視キーワードの一覧を表示します。' },
+  { name: 'vc_list', description: 'ボカコレ監視キーワードの一覧を表示します（一覧から各項目をその場で編集できます）。' },
   {
     name: 'vc_remove',
     description: 'ボカコレ監視キーワードを削除します。',
@@ -114,7 +114,7 @@ const commands = [
     options: [{ name: 'user_id', type: 3, description: 'ニコニコのユーザーID', required: true, autocomplete: true }],
     ...ADMIN_ONLY
   },
-  { name: 'user_list', description: '現在監視中のニコニコユーザーID一覧を表示します。' },
+  { name: 'user_list', description: '現在監視中のニコニコユーザーID一覧を表示します（一覧から各項目をその場で編集できます）。' },
   {
     name: 'set_milestone',
     description: '【管理者】マイルストーン（キリ番）の判定単位を変更します。',
@@ -161,6 +161,27 @@ const commands = [
   },
   { name: 'settings', description: '現在のマイルストーン・急上昇・実行スケジュール等の設定値を一覧表示します。' },
   {
+    name: 'guild_setup',
+    description: '【管理者】このサーバーの通知先チャンネルを設定します（未設定だと通知は届きません）。',
+    options: [
+      { name: 'channel', type: 7, description: '通知先チャンネル（省略すると解除）', required: false },
+      {
+        name: 'kind', type: 3, description: '設定する通知の種類（省略時は通常の通知）', required: false,
+        choices: [
+          { name: '通常の通知（レポート・新着・キリ番）', value: 'notify' },
+          { name: 'ボカコレ/ランキング監視', value: 'vocacolle' },
+          { name: 'X(Twitter)監視', value: 'twitter' }
+        ]
+      }
+    ],
+    ...ADMIN_ONLY
+  },
+  {
+    name: 'guild_adopt',
+    description: '【管理者】サーバー未指定で移行された旧データを、このサーバーに引き継ぎます。',
+    ...ADMIN_ONLY
+  },
+  {
     name: 'logs',
     description: '【管理者】直近のBotログ（実行ログ・エラーログ）を表示します。',
     options: [
@@ -190,7 +211,7 @@ const X_COMMANDS = [
       { name: 'note', type: 3, description: 'メモ', required: false }
     ]
   },
-  { name: 'x_list', description: 'X監視キーワードの一覧を表示します。' },
+  { name: 'x_list', description: 'X監視キーワードの一覧を表示します（一覧から各項目をその場で編集できます）。' },
   {
     name: 'x_remove',
     description: 'X監視キーワードを削除します。',

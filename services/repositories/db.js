@@ -5,10 +5,13 @@ const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
 
+// 通常は data/xenogram.sqlite。XENOGRAM_DB_PATH を指定すると別のファイルを開く
+// （本番DBに触れずにマイグレーションや破壊的な変更を検証するために使う）。
 const DATA_DIR = path.join(__dirname, '../../data');
-const DB_PATH = path.join(DATA_DIR, 'xenogram.sqlite');
+const DB_PATH = process.env.XENOGRAM_DB_PATH || path.join(DATA_DIR, 'xenogram.sqlite');
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const dbDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
 
@@ -68,11 +71,11 @@ CREATE TABLE IF NOT EXISTS vocacolle_detections (
 );
 CREATE INDEX IF NOT EXISTS idx_vocacolle_detections_detected_at ON vocacolle_detections(detected_at DESC);
 
-CREATE TABLE IF NOT EXISTS vocacolle_settings (
-  id         INTEGER PRIMARY KEY CHECK (id = 1),
-  enabled    INTEGER NOT NULL DEFAULT 1,
-  updated_at TEXT NOT NULL
-);
+-- 注意: ここは「初期スキーマ」であり、起動のたびに実行される。
+-- マイグレーションで削除したテーブルをここに残しておくと、次回起動時に
+-- CREATE TABLE IF NOT EXISTS が空のテーブルを作り直してしまう
+-- （vocacolle_settings が実際にそうなっていた。0003 で除去済み）。
+-- 構造を変えるときは、ここではなく migrations/ にSQLを足すこと。
 
 CREATE TABLE IF NOT EXISTS vocacolle_ranking_sources (
   page_id     TEXT PRIMARY KEY,
@@ -90,7 +93,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TEXT NOT NULL
 );
 
--- 監視対象のニコニコユーザーID。空ならconfig.js（NICO_USER_IDS環境変数）にフォールバックする
+-- 監視対象のニコニコユーザーID（サーバーごと）。登録が無い鯖は誰も監視しない
+-- （0001以降 guild_id 付き。.envへのフォールバックは廃止済み）
 CREATE TABLE IF NOT EXISTS nico_users (
   user_id    TEXT PRIMARY KEY,
   label      TEXT,
@@ -119,9 +123,31 @@ CREATE TABLE IF NOT EXISTS twitter_detections (
 CREATE INDEX IF NOT EXISTS idx_twitter_detections_detected_at ON twitter_detections(detected_at DESC);
 `);
 
-// 設定行は常に1行だけ存在する前提（無ければ有効な状態で作る）
-db.prepare(`INSERT OR IGNORE INTO vocacolle_settings (id, enabled, updated_at) VALUES (1, 1, ?)`)
-  .run(new Date().toISOString());
+// 上の CREATE TABLE 群は「初期スキーマ」。ここから先の構造変更は migrations/ 配下の
+// SQLで行い、適用済みバージョンを schema_migrations に記録する
+// （新規DBでも既存DBでも「初期スキーマ → 未適用マイグレーションを順に適用」で
+//   同じ最終形になるため、経路が1本で済む）。
+const config = require('../../config');
+const { runMigrations } = require('./migrate');
+
+// マルチテナント化以前のデータをどのサーバーの所有として引き継ぐか。
+// DISCORD_GUILD_ID が未設定の環境では 'legacy' に退避し、起動ログで知らせる
+// （後から /guild_setup を実行したサーバーが引き取れる状態にしておく）。
+const LEGACY_GUILD_ID = config.DISCORD.GUILD_ID || 'legacy';
+if (!config.DISCORD.GUILD_ID) {
+  console.warn(
+    "[MIGRATE] DISCORD_GUILD_ID が未設定のため、既存データを 'legacy' サーバーとして退避します。" +
+    ' 引き継ぎたいサーバーで /guild_adopt を実行してください。'
+  );
+}
+
+runMigrations(db, {
+  __LEGACY_GUILD_ID__: LEGACY_GUILD_ID,
+  __LEGACY_NOTIFY_CHANNEL__: config.DISCORD.CHANNEL_ID,
+  __LEGACY_VOCACOLLE_CHANNEL__: config.VOCACOLLE.CHANNEL_ID,
+  __LEGACY_TWITTER_CHANNEL__: config.TWITTER_MONITOR.CHANNEL_ID,
+  __NOW__: new Date().toISOString(),
+});
 
 /**
  * SQLiteはBOOLEANを持たないため 0/1 で保存している。JS側の真偽値との変換ヘルパー。

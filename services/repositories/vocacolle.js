@@ -12,11 +12,11 @@ function normalizeKeywordRow(row) {
 /**
  * 有効なキーワードを全件取得する（期間判定は呼び出し側で行う）
  */
-async function getVocacolleKeywords(includeDisabled = false) {
+async function getVocacolleKeywords(guildId, includeDisabled = false) {
   try {
     const rows = includeDisabled
-      ? db.prepare('SELECT * FROM vocacolle_keywords ORDER BY id ASC').all()
-      : db.prepare('SELECT * FROM vocacolle_keywords WHERE enabled = 1 ORDER BY id ASC').all();
+      ? db.prepare('SELECT * FROM vocacolle_keywords WHERE guild_id = ? ORDER BY id ASC').all(guildId)
+      : db.prepare('SELECT * FROM vocacolle_keywords WHERE guild_id = ? AND enabled = 1 ORDER BY id ASC').all(guildId);
     return rows.map(normalizeKeywordRow);
   } catch (error) {
     console.error("Error getting vocacolle keywords:", error);
@@ -27,12 +27,12 @@ async function getVocacolleKeywords(includeDisabled = false) {
 /**
  * 監視キーワードを追加する
  */
-async function addVocacolleKeyword({ keyword, target = 'title', pageId = 'rookie', activeFrom = null, activeUntil = null, note = null }) {
+async function addVocacolleKeyword({ guildId, keyword, target = 'title', pageId = 'rookie', activeFrom = null, activeUntil = null, note = null }) {
   try {
     const info = db.prepare(`
-      INSERT INTO vocacolle_keywords (keyword, target, page_id, active_from, active_until, note, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(keyword, target, pageId, activeFrom, activeUntil, note, new Date().toISOString());
+      INSERT INTO vocacolle_keywords (guild_id, keyword, target, page_id, active_from, active_until, note, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(guildId, keyword, target, pageId, activeFrom, activeUntil, note, new Date().toISOString());
 
     const data = db.prepare('SELECT * FROM vocacolle_keywords WHERE id = ?').get(info.lastInsertRowid);
     return { data: normalizeKeywordRow(data), error: null };
@@ -45,12 +45,70 @@ async function addVocacolleKeyword({ keyword, target = 'title', pageId = 'rookie
 }
 
 /**
+ * IDを指定して1件取得する（編集フォームの初期値表示用）
+ */
+async function getVocacolleKeyword(guildId, id) {
+  try {
+    const row = db.prepare('SELECT * FROM vocacolle_keywords WHERE guild_id = ? AND id = ?').get(guildId, id);
+    return row ? normalizeKeywordRow(row) : null;
+  } catch (error) {
+    console.error("Error getting vocacolle keyword:", error);
+    return null;
+  }
+}
+
+// patchのキー → 実際の列名。渡されたキーだけをUPDATE対象にする
+// （undefinedの項目を「NULLで上書き」してしまわないようにするため）。
+const KEYWORD_COLUMNS = {
+  keyword: 'keyword',
+  target: 'target',
+  pageId: 'page_id',
+  activeFrom: 'active_from',
+  activeUntil: 'active_until',
+  note: 'note',
+  enabled: 'enabled',
+};
+
+/**
+ * 監視キーワードを編集する。
+ * 登録し直さないと直せなかった項目（キーワードの誤字・page_idの指定間違い・監視期間）を
+ * その場で修正できるようにするためのもの。
+ *
+ * @param {number} id
+ * @param {Object} patch 変更したい項目だけを持つオブジェクト
+ * @returns {{ok: boolean, data?: Object, reason?: string}}
+ */
+async function updateVocacolleKeyword(guildId, id, patch) {
+  const existing = await getVocacolleKeyword(guildId, id);
+  if (!existing) return { ok: false, reason: 'not_found' };
+
+  const sets = [];
+  const params = [];
+  for (const [key, column] of Object.entries(KEYWORD_COLUMNS)) {
+    if (!(key in patch)) continue;
+    sets.push(`${column} = ?`);
+    params.push(column === 'enabled' ? fromBool(patch[key]) : patch[key]);
+  }
+  if (!sets.length) return { ok: true, data: existing };
+
+  try {
+    db.prepare(`UPDATE vocacolle_keywords SET ${sets.join(', ')} WHERE guild_id = ? AND id = ?`).run(...params, guildId, id);
+    return { ok: true, data: await getVocacolleKeyword(guildId, id) };
+  } catch (error) {
+    // (page_id, target, keyword) のUNIQUE制約。既存の別登録とぶつかった場合
+    if (isUniqueConstraintError(error)) return { ok: false, reason: 'duplicate' };
+    console.error("Error updating vocacolle keyword:", error);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+/**
  * 監視キーワードを削除する
  */
-async function removeVocacolleKeyword(id) {
+async function removeVocacolleKeyword(guildId, id) {
   try {
-    db.prepare('DELETE FROM vocacolle_keywords WHERE id = ?').run(id);
-    return true;
+    const info = db.prepare('DELETE FROM vocacolle_keywords WHERE guild_id = ? AND id = ?').run(guildId, id);
+    return info.changes > 0;
   } catch (error) {
     console.error("Error removing vocacolle keyword:", error);
     return false;
@@ -131,13 +189,18 @@ async function touchVocacolleDetection(keywordId, pageId, watchId, { rank, view 
   }
 }
 
+// ボカコレ監視のON/OFFは専用テーブル（1行固定）をやめ、鯖ごとの値を持てる
+// app_settings に移した（設定の置き場所が2種類あると取り違えるため）。
+const WATCH_ENABLED_KEY = 'vocacolle_watch_enabled';
+
 /**
- * ボカコレ監視の有効/無効フラグを取得する（未取得時はデフォルトで有効扱い）
+ * その鯖のボカコレ監視の有効/無効フラグ（未設定ならデフォルトで有効扱い）
  */
-async function getVocacolleWatchEnabled() {
+async function getVocacolleWatchEnabled(guildId) {
   try {
-    const row = db.prepare('SELECT enabled FROM vocacolle_settings WHERE id = 1').get();
-    return row ? toBool(row.enabled) : true;
+    const row = db.prepare('SELECT value FROM app_settings WHERE guild_id = ? AND key = ?')
+      .get(guildId, WATCH_ENABLED_KEY);
+    return row ? row.value === '1' : true;
   } catch (error) {
     console.error("Error getting vocacolle settings:", error);
     return true;
@@ -145,14 +208,14 @@ async function getVocacolleWatchEnabled() {
 }
 
 /**
- * ボカコレ監視の有効/無効を切り替える（/vc_toggle 用）
+ * その鯖のボカコレ監視の有効/無効を切り替える（/vc_toggle 用）
  */
-async function setVocacolleWatchEnabled(enabled) {
+async function setVocacolleWatchEnabled(guildId, enabled) {
   try {
     db.prepare(`
-      INSERT INTO vocacolle_settings (id, enabled, updated_at) VALUES (1, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at
-    `).run(fromBool(enabled), new Date().toISOString());
+      INSERT INTO app_settings (guild_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(guildId, WATCH_ENABLED_KEY, fromBool(enabled) ? '1' : '0', new Date().toISOString());
     return true;
   } catch (error) {
     console.error("Error setting vocacolle watch enabled:", error);
@@ -192,7 +255,9 @@ async function upsertVocacolleRankingSource(pageId, source) {
 
 module.exports = {
   getVocacolleKeywords,
+  getVocacolleKeyword,
   addVocacolleKeyword,
+  updateVocacolleKeyword,
   removeVocacolleKeyword,
   hasVocacolleDetection,
   recordVocacolleDetection,

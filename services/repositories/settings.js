@@ -2,7 +2,8 @@ const { db } = require('./db');
 const config = require('../../config');
 
 // キー: app_settings.key ⇔ config.js のデフォルト値の対応表。
-// DBに行が無ければ config 側の値（＝.envのデフォルト）を使う。
+// その鯖のDBに行が無ければ config 側の値（＝.envのデフォルト）を使う
+// ＝ 新しく入れた鯖は「.envの初期値」で動き出し、変更した項目だけがDBに載る。
 const DEFAULTS = {
   milestone_step: () => config.MILESTONE_STEP,
   spike_view_threshold_per_hour: () => config.SPIKE_DETECTION.VIEW_THRESHOLD_PER_HOUR,
@@ -22,40 +23,40 @@ const NUMERIC_KEYS = new Set([
   'vocacolle_rank_change_threshold',
 ]);
 
-function getRaw(key) {
-  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+function getRaw(guildId, key) {
+  const row = db.prepare('SELECT value FROM app_settings WHERE guild_id = ? AND key = ?').get(guildId, key);
   if (row) return row.value;
   const fallback = DEFAULTS[key];
   return fallback ? String(fallback()) : null;
 }
 
 /**
- * 設定値を取得する。DBに保存されていなければ config.js のデフォルトを返す。
+ * その鯖の設定値を取得する。保存されていなければ config.js のデフォルトを返す。
  * 数値設定キーは自動でNumberに変換する。
  */
-function getSetting(key) {
-  const raw = getRaw(key);
+function getSetting(guildId, key) {
+  const raw = getRaw(guildId, key);
   if (raw === null) return null;
   return NUMERIC_KEYS.has(key) ? Number(raw) : raw;
 }
 
 /**
- * 設定値を保存する（/set_* コマンド用）
+ * その鯖の設定値を保存する（/set_* コマンド用）
  */
-function setSetting(key, value) {
+function setSetting(guildId, key, value) {
   db.prepare(`
-    INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-  `).run(key, String(value), new Date().toISOString());
+    INSERT INTO app_settings (guild_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(guildId, key, String(value), new Date().toISOString());
 }
 
 /**
- * 現在有効な設定を一覧取得する（/settings コマンド用）。
- * DB上書きの有無も分かるようにする。
+ * その鯖で現在有効な設定を一覧取得する（/settings コマンド用）。
+ * DB上書きの有無（＝この鯖で明示的に変えた項目かどうか）も分かるようにする。
  */
-function getAllSettingsWithSource() {
+function getAllSettingsWithSource(guildId) {
   return Object.keys(DEFAULTS).map((key) => {
-    const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+    const row = db.prepare('SELECT value FROM app_settings WHERE guild_id = ? AND key = ?').get(guildId, key);
     return {
       key,
       value: row ? row.value : String(DEFAULTS[key]()),

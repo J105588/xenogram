@@ -15,8 +15,8 @@ const { withSingleFlight } = require('../singleFlight');
  * @param {boolean} [options.bypassToggle] true なら /x_toggle off で無効化中でも実行する（/x_check 用）
  * @returns {Promise<{checked: number, hits: number, notified: number, skipped?: string}>}
  */
-async function runTwitterWatch(options = {}) {
-  const outcome = await withSingleFlight('twitterWatch', () => runTwitterWatchInner(options));
+async function runTwitterWatch(guildId, options = {}) {
+  const outcome = await withSingleFlight(`twitterWatch:${guildId}`, () => runTwitterWatchInner(guildId, options));
   if (!outcome.ok) {
     console.warn("[X] 前回の実行がまだ完了していないため、今回はスキップします");
     return { checked: 0, hits: 0, notified: 0, skipped: 'already_running' };
@@ -24,24 +24,30 @@ async function runTwitterWatch(options = {}) {
   return outcome.result;
 }
 
-async function runTwitterWatchInner({ bypassToggle = false } = {}) {
-  console.log("Running twitter (X) keyword watch...");
+async function runTwitterWatchInner(guildId, { bypassToggle = false } = {}) {
+  console.log(`Running twitter (X) keyword watch... (guild: ${guildId})`);
 
   if (!config.TWITTER_MONITOR.ENABLED) {
     return { checked: 0, hits: 0, notified: 0, skipped: 'disabled_by_config' };
   }
 
+  // 通知先が未設定なら検索しても届け先が無い（外部CLIの呼び出しが丸ごと無駄になる）
+  if (!dbService.resolveChannelId(guildId, 'twitter')) {
+    console.log(`[X] 通知先チャンネルが未設定のためスキップします (guild: ${guildId})`);
+    return { checked: 0, hits: 0, notified: 0, skipped: 'no_channel' };
+  }
+
   if (!bypassToggle) {
-    const enabled = await dbService.getTwitterMonitorEnabled();
+    const enabled = await dbService.getTwitterMonitorEnabled(guildId);
     if (!enabled) {
       console.log("[X] /x_toggle off により無効化されているため処理をスキップします");
       return { checked: 0, hits: 0, notified: 0, skipped: 'disabled' };
     }
   }
 
-  const keywords = await dbService.getTwitterKeywords();
+  const keywords = await dbService.getTwitterKeywords(guildId);
   if (!keywords.length) {
-    console.log("[X] 監視キーワードが未登録のため処理をスキップします");
+    console.log(`[X] 監視キーワードが未登録のため処理をスキップします (guild: ${guildId})`);
     return { checked: 0, hits: 0, notified: 0, skipped: 'no_keywords' };
   }
 
@@ -81,7 +87,7 @@ async function runTwitterWatchInner({ bypassToggle = false } = {}) {
           .setFooter({ text: config.FOOTER_TEXT })
           .setTimestamp(tweet.createdAt ? new Date(tweet.createdAt) : new Date());
 
-        const sent = await discordService.sendEmbedWithFiles({ channelId: config.TWITTER_MONITOR.CHANNEL_ID, embed });
+        const sent = await discordService.sendEmbedWithFiles({ guildId, kind: 'twitter', embed });
         if (sent) totalNotified += 1;
 
         await dbService.recordTwitterDetection({ keywordId: keyword.id, tweetId: tweet.id, author: tweet.author });

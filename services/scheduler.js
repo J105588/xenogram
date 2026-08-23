@@ -1,6 +1,9 @@
 // 各ジョブの実体は services/jobs/ 配下にドメインごと分割されている。
 // このファイルは cron への登録・実行時の再スケジュールと、後方互換のための
 // re-export だけを担う。
+//
+// マルチテナント化にあたり、cronタスクは「ジョブごと1本」から
+// 「サーバー × ジョブごと1本」に変わった。鯖ごとに実行時刻を変えられるようにするため。
 const cron = require('node-cron');
 const config = require('../config');
 const discordService = require('./discord');
@@ -23,21 +26,21 @@ const JOB_DEFS = {
     settingKey: 'cron_update_video_list',
     label: '毎時 新着/キリ番/急上昇チェック',
     scheduleShape: 'hourly',
-    run: () => updateVideoList(),
+    run: (guildId) => updateVideoList(guildId),
     errorTitle: '🚨 Scheduler: Hourly Update Failed',
   },
   daily_report: {
     settingKey: 'cron_daily_report',
     label: 'デイリーレポート',
     scheduleShape: 'daily',
-    run: () => reportEachVideoStats(),
+    run: (guildId) => reportEachVideoStats(guildId),
     errorTitle: '🚨 Scheduler: Daily Report Failed',
   },
   vocacolle_watch: {
     settingKey: 'cron_vocacolle_watch',
     label: 'ボカコレ/ランキング監視',
     scheduleShape: 'hourly',
-    run: () => runVocacolleWatch({ notifySummary: true }),
+    run: (guildId) => runVocacolleWatch(guildId, { notifySummary: true }),
     errorTitle: '🚨 Scheduler: Vocacolle Watch Failed',
     enabledCheck: () => config.VOCACOLLE.ENABLED,
   },
@@ -45,7 +48,7 @@ const JOB_DEFS = {
     settingKey: 'cron_weekly_report',
     label: '週次まとめレポート',
     scheduleShape: 'weekly',
-    run: () => sendWeeklyReport(),
+    run: (guildId) => sendWeeklyReport(guildId),
     errorTitle: '🚨 Scheduler: Weekly Report Failed',
     enabledCheck: () => config.WEEKLY_REPORT.ENABLED,
   },
@@ -53,46 +56,80 @@ const JOB_DEFS = {
     settingKey: 'cron_twitter_watch',
     label: 'X(Twitter) キーワード監視（読み取り専用）',
     scheduleShape: 'hourly',
-    run: () => runTwitterWatch(),
+    run: (guildId) => runTwitterWatch(guildId),
     errorTitle: '🚨 Scheduler: Twitter Watch Failed',
     // 未セットアップの環境では無効のままにし、cronにも登録しない（TWITTER_MONITOR_ENABLED=true が必要）
     enabledCheck: () => config.TWITTER_MONITOR.ENABLED,
   },
 };
 
-// 現在稼働中の cron タスク（stop()して差し替えられるよう保持する）
+// 現在稼働中の cron タスク。キーは "guildId:jobKey"
+// （鯖ごとに実行時刻が違うので、差し替えも鯖単位で行う必要がある）
 const activeTasks = new Map();
 
-function scheduleJob(jobKey) {
+const taskKey = (guildId, jobKey) => `${guildId}:${jobKey}`;
+
+function scheduleJob(guildId, jobKey) {
   const def = JOB_DEFS[jobKey];
   if (!def) throw new Error(`Unknown job: ${jobKey}`);
 
-  if (def.enabledCheck && !def.enabledCheck()) {
-    console.log(`${def.label} is disabled by config, skipping schedule.`);
+  if (def.enabledCheck && !def.enabledCheck()) return;
+
+  const cronExpr = dbService.getSetting(guildId, def.settingKey);
+  if (!cron.validate(cronExpr)) {
+    console.error(`[SCHED] 不正なcron式のため登録をスキップします (guild: ${guildId}, ${jobKey}): "${cronExpr}"`);
     return;
   }
 
-  const cronExpr = dbService.getSetting(def.settingKey);
   const task = cron.schedule(cronExpr, () => {
-    def.run().catch(async (err) => {
+    def.run(guildId).catch(async (err) => {
       console.error(err);
-      await discordService.sendErrorEmbed(err, def.errorTitle);
+      // エラーはその鯖にだけ通知する（他の鯖には関係のない話のため）
+      await discordService.sendErrorEmbed(err, def.errorTitle, guildId);
     });
   }, { timezone: 'Asia/Tokyo' });
 
-  activeTasks.set(jobKey, task);
-  console.log(`${def.label} scheduled: "${cronExpr}" (Asia/Tokyo)`);
+  activeTasks.set(taskKey(guildId, jobKey), task);
+}
+
+/**
+ * 1サーバーぶんの全ジョブを登録する（既存のタスクがあれば止めてから張り直す）。
+ */
+function scheduleGuild(guildId) {
+  unscheduleGuild(guildId);
+  for (const jobKey of Object.keys(JOB_DEFS)) {
+    scheduleJob(guildId, jobKey);
+  }
+  console.log(`[SCHED] サーバー ${guildId} のジョブを登録しました。`);
+}
+
+/**
+ * 1サーバーぶんの全ジョブを止める（Botがサーバーから外された時など）。
+ */
+function unscheduleGuild(guildId) {
+  for (const jobKey of Object.keys(JOB_DEFS)) {
+    const key = taskKey(guildId, jobKey);
+    const task = activeTasks.get(key);
+    if (task) {
+      task.stop();
+      activeTasks.delete(key);
+    }
+  }
 }
 
 /**
  * 指定ジョブのcron式を設定に保存し、稼働中のタスクを差し替える（実行時に即反映）。
  */
-function applyCronAndReschedule(jobKey, cronExpr) {
-  const existing = activeTasks.get(jobKey);
-  if (existing) existing.stop();
+function applyCronAndReschedule(guildId, jobKey, cronExpr) {
+  const key = taskKey(guildId, jobKey);
+  const existing = activeTasks.get(key);
+  if (existing) {
+    existing.stop();
+    activeTasks.delete(key);
+  }
 
-  dbService.setSetting(JOB_DEFS[jobKey].settingKey, cronExpr);
-  scheduleJob(jobKey);
+  dbService.setSetting(guildId, JOB_DEFS[jobKey].settingKey, cronExpr);
+  scheduleJob(guildId, jobKey);
 }
 
 /**
@@ -100,14 +137,14 @@ function applyCronAndReschedule(jobKey, cronExpr) {
  * 「5分」「7時30分」「日 21時」のような自然な入力をジョブの形に応じてcron式へ変換してから
  * 適用する（cron式をそのまま渡した場合はそれを使う）。再起動不要で即座に反映する。
  */
-function rescheduleJob(jobKey, rawInput) {
+function rescheduleJob(guildId, jobKey, rawInput) {
   const def = JOB_DEFS[jobKey];
   if (!def) return { ok: false, reason: 'unknown_job' };
 
   const parsed = toCronExpression(rawInput, def.scheduleShape);
   if (!parsed.ok) return { ok: false, reason: 'invalid_format', scheduleShape: def.scheduleShape };
 
-  applyCronAndReschedule(jobKey, parsed.cronExpr);
+  applyCronAndReschedule(guildId, jobKey, parsed.cronExpr);
   return { ok: true, cronExpr: parsed.cronExpr };
 }
 
@@ -121,28 +158,28 @@ const VOCA_LINKED_SAVED_SETTING_KEY = 'daily_report_cron_before_voca_link';
 /**
  * /vc_toggle から呼ばれる。ボカコレ監視のON/OFFに合わせてデイリーレポートの
  * スケジュールを切り替える。切り替えが発生した場合はユーザー向けの案内文を返す
- * （何も変わらなかった場合は null）。
+ * （何も変わらなかった場合は null）。鯖ごとに独立して効く。
  */
-function applyVocacolleLinkedSchedule(vocaEnabled) {
+function applyVocacolleLinkedSchedule(guildId, vocaEnabled) {
   const def = JOB_DEFS[VOCA_LINKED_JOB_KEY];
 
   if (vocaEnabled) {
-    const current = dbService.getSetting(def.settingKey);
+    const current = dbService.getSetting(guildId, def.settingKey);
     if (current === VOCA_LINKED_CRON) return null; // 既に連動切り替え済み（二重トグル等）
 
-    dbService.setSetting(VOCA_LINKED_SAVED_SETTING_KEY, current);
-    applyCronAndReschedule(VOCA_LINKED_JOB_KEY, VOCA_LINKED_CRON);
+    dbService.setSetting(guildId, VOCA_LINKED_SAVED_SETTING_KEY, current);
+    applyCronAndReschedule(guildId, VOCA_LINKED_JOB_KEY, VOCA_LINKED_CRON);
     return `📅 ボカコレ監視中は${def.label}を毎時20分に切り替えました（元の設定 \`${current}\` は保存済みで、OFFに戻すと自動で復元されます）。`;
   }
 
-  const saved = dbService.getSetting(VOCA_LINKED_SAVED_SETTING_KEY);
+  const saved = dbService.getSetting(guildId, VOCA_LINKED_SAVED_SETTING_KEY);
   if (saved === null) return null; // 連動切り替えを一度もしていない状態
 
-  applyCronAndReschedule(VOCA_LINKED_JOB_KEY, saved);
+  applyCronAndReschedule(guildId, VOCA_LINKED_JOB_KEY, saved);
   return `📅 ${def.label}を元のスケジュール \`${saved}\` に戻しました。`;
 }
 
-function listJobs() {
+function listJobs(guildId) {
   // enabledCheck が false のジョブ（機能まるごと config で無効化されているもの）は、
   // /settings 等の表示からも除外する（＝実行されないジョブの存在自体を出さない）
   return Object.entries(JOB_DEFS)
@@ -150,20 +187,27 @@ function listJobs() {
     .map(([key, def]) => ({
       key,
       label: def.label,
-      cron: dbService.getSetting(def.settingKey),
+      cron: dbService.getSetting(guildId, def.settingKey),
       scheduleShape: def.scheduleShape,
     }));
 }
 
+/**
+ * 登録済みの全サーバーぶんのジョブを起動する。
+ * guildsテーブルが埋まっている必要があるため、Discordログイン完了後に呼ぶこと。
+ */
 function startScheduler() {
-  for (const jobKey of Object.keys(JOB_DEFS)) {
-    scheduleJob(jobKey);
+  const guilds = dbService.getAllGuilds();
+  for (const guild of guilds) {
+    scheduleGuild(guild.guild_id);
   }
-  console.log("Schedulers started.");
+  console.log(`Schedulers started for ${guilds.length} guild(s). (${activeTasks.size} tasks)`);
 }
 
 module.exports = {
   startScheduler,
+  scheduleGuild,
+  unscheduleGuild,
   rescheduleJob,
   applyVocacolleLinkedSchedule,
   listJobs,

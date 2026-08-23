@@ -1,8 +1,8 @@
-const { EmbedBuilder } = require('discord.js');
 const dbService = require('../database');
 const discordService = require('../discord');
 const utils = require('../../utils');
 const config = require('../../config');
+const { buildVideoStatsEmbed, buildSummaryEmbed } = require('../reports/videoEmbed');
 const { markRun } = require('./status');
 const { withSingleFlight } = require('../singleFlight');
 
@@ -14,25 +14,26 @@ const { withSingleFlight } = require('../singleFlight');
  * 粒度で描けるようになったため追加した。
  * 手動実行と自動実行が重なっても二重送信されないよう、常に1本だけ走らせる。
  */
-async function sendWeeklyReport() {
-  const outcome = await withSingleFlight('weeklyReport', sendWeeklyReportInner);
+async function sendWeeklyReport(guildId) {
+  const outcome = await withSingleFlight(`weeklyReport:${guildId}`, () => sendWeeklyReportInner(guildId));
   if (!outcome.ok) {
-    console.warn("[WEEKLY] 前回の週次レポートがまだ完了していないため、今回はスキップします");
+    console.warn(`[WEEKLY] 前回の週次レポートがまだ完了していないため、今回はスキップします (guild: ${guildId})`);
     return { skipped: 'already_running' };
   }
   return outcome.result;
 }
 
-async function sendWeeklyReportInner() {
-  console.log("Running weekly report...");
+async function sendWeeklyReportInner(guildId) {
+  console.log(`Running weekly report... (guild: ${guildId})`);
 
-  if (!config.DISCORD.CHANNEL_ID) {
-    throw new Error("⚠️ DISCORD_CHANNEL_ID is not set in configuration!");
+  if (!dbService.resolveChannelId(guildId, 'notify')) {
+    console.warn(`週次レポート: 通知先チャンネルが未設定のためスキップします (guild: ${guildId})`);
+    return { skipped: 'no_channel' };
   }
 
-  const videos = await dbService.getAllVideos();
+  const videos = await dbService.getAllVideos(guildId);
   if (!videos.length) {
-    console.log("週次レポート: 監視中の動画がないためスキップします");
+    console.log(`週次レポート: 監視中の動画がないためスキップします (guild: ${guildId})`);
     markRun('weeklyReport');
     return;
   }
@@ -48,14 +49,16 @@ async function sendWeeklyReportInner() {
       ]);
       if (!latest) continue;
 
-      const diff = {
-        view: latest.views - (weekAgo ? weekAgo.views : 0),
-        like: latest.likes - (weekAgo ? weekAgo.likes : 0),
-        mylist: latest.mylists - (weekAgo ? weekAgo.mylists : 0),
-        comment: latest.comments - (weekAgo ? weekAgo.comments : 0),
-      };
-
-      rows.push({ video, latest, diff, history });
+      // 日次レポートと同じ計算・同じ表示に通せるよう、DBの行をAPIと同じ形に揃える
+      const current = utils.fromStatsRow(latest);
+      rows.push({
+        video,
+        current,
+        previous: weekAgo,
+        diff: utils.calculateDiff(current, weekAgo),
+        history,
+        trend: utils.analyzeHistory(history, 'views'),
+      });
     } catch (itemError) {
       console.error(`❌ Failed to build weekly stats for ${video.id}:`, itemError);
     }
@@ -68,49 +71,35 @@ async function sendWeeklyReportInner() {
   }
 
   // 全体サマリー（今週いちばん伸びた動画がひと目で分かるように）
-  const totalViewGrowth = rows.reduce((sum, r) => sum + r.diff.view, 0);
-  const ranked = [...rows].sort((a, b) => b.diff.view - a.diff.view);
+  try {
+    await discordService.sendNotification(
+      guildId,
+      buildSummaryEmbed(rows, { title: '週次まとめレポート', periodLabel: '今週' })
+    );
+  } catch (summaryError) {
+    console.error('❌ Failed to send weekly summary embed:', summaryError);
+  }
 
-  const summaryEmbed = new EmbedBuilder()
-    .setTitle('📅 週次まとめレポート')
-    .setColor(parseInt(config.CHART_COLOR, 16))
-    .setDescription(`監視中 ${rows.length}本 / 今週の合計再生増加: **${totalViewGrowth.toLocaleString()}**`)
-    .addFields(
-      ranked.slice(0, 5).map((r, i) => ({
-        name: utils.truncate(`${i + 1}位 ${r.video.title}`, 256),
-        value: `再生 ${utils.formatDiff(r.diff.view)}・いいね ${utils.formatDiff(r.diff.like)}`,
-        inline: false,
-      }))
-    )
-    .setFooter({ text: config.FOOTER_TEXT })
-    .setTimestamp();
-
-  await discordService.sendNotification(summaryEmbed);
+  const milestoneStep = dbService.getSetting(guildId, 'milestone_step');
 
   // 動画ごとの詳細（日次レポートと同じ形式で、7日間比較版）
-  for (const { video, latest, diff, history } of rows) {
+  for (const row of rows) {
     try {
-      const chartUrl = utils.generateChartUrl(history);
-
-      const embed = new EmbedBuilder()
-        .setTitle(utils.truncate(`週報: ${video.title}`, 256))
-        .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
-        .setColor(parseInt(config.CHART_COLOR, 16))
-        .setThumbnail(video.thumbnail_url)
-        .addFields(
-          { name: "Views", value: `**${latest.views.toLocaleString()}** (${utils.formatDiff(diff.view)}/週)`, inline: true },
-          { name: "Likes", value: `**${latest.likes.toLocaleString()}** (${utils.formatDiff(diff.like)}/週)`, inline: true },
-          { name: "Mylist", value: `**${latest.mylists.toLocaleString()}** (${utils.formatDiff(diff.mylist)}/週)`, inline: true },
-          { name: "Comments", value: `**${latest.comments.toLocaleString()}** (${utils.formatDiff(diff.comment)}/週)`, inline: true },
-        )
-        .setFooter({ text: config.FOOTER_TEXT })
-        .setTimestamp();
-
-      if (chartUrl) embed.setImage(chartUrl);
-
-      await discordService.sendNotification(embed);
+      const embed = buildVideoStatsEmbed({
+        videoId: row.video.id,
+        title: row.video.title,
+        thumbnail: row.video.thumbnail_url,
+        tags: row.video.tags,
+        current: row.current,
+        previous: row.previous,
+        history: row.history,
+        diffHeader: 'vs 7d',
+        titlePrefix: '週報',
+        milestoneStep,
+      });
+      await discordService.sendNotification(guildId, embed);
     } catch (itemError) {
-      console.error(`❌ Failed to send weekly report for ${video.id}:`, itemError);
+      console.error(`❌ Failed to send weekly report for ${row.video.id}:`, itemError);
     }
   }
 

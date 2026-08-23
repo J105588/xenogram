@@ -3,15 +3,31 @@ const config = require('../../config');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-async function sendNotification(embedOrText) {
-  if (!config.DISCORD.CHANNEL_ID) {
-    console.error("❌ [CRITICAL] DISCORD_CHANNEL_ID is missing in config. Cannot send notification.");
+/**
+ * 指定サーバーの通知チャンネルへ送る。
+ *
+ * 以前は .env の DISCORD_CHANNEL_ID 1つに固定で送っていたが、鯖ごとに
+ * 通知先を持てるようにしたため、送信先は guilds テーブルから解決する。
+ * 通知先が未設定の鯖には何も送らない（/guild_setup で明示的に指定するまで、
+ * Botを入れただけで意図しないチャンネルに流れ出さないようにするため）。
+ *
+ * @param {string} guildId 送信先サーバーID
+ * @param {string|EmbedBuilder} embedOrText
+ * @param {'notify'|'vocacolle'|'twitter'} [kind] 用途別チャンネルの使い分け
+ */
+async function sendNotification(guildId, embedOrText, kind = 'notify') {
+  const dbService = require('../database');
+  const channelId = guildId ? dbService.resolveChannelId(guildId, kind) : null;
+
+  if (!channelId) {
+    console.warn(`[NOTIFY] 通知先チャンネルが未設定のため送信をスキップします (guild: ${guildId})。/guild_setup で設定してください。`);
     return false;
   }
+
   try {
-    const channel = await client.channels.fetch(config.DISCORD.CHANNEL_ID);
+    const channel = await client.channels.fetch(channelId);
     if (!channel) {
-      console.error(`❌ [ERROR] Channel not found for ID: ${config.DISCORD.CHANNEL_ID}`);
+      console.error(`❌ [ERROR] Channel not found for ID: ${channelId} (guild: ${guildId})`);
       return false;
     }
     if (typeof embedOrText === 'string') await channel.send(embedOrText);
@@ -24,6 +40,20 @@ async function sendNotification(embedOrText) {
 }
 
 /**
+ * 全サーバーへ同じ内容を送る（Bot全体の起動・停止・障害通知など、
+ * 特定の鯖に属さない運用連絡用）。
+ */
+async function broadcastNotification(embedOrText) {
+  const dbService = require('../database');
+  const guilds = dbService.getActiveGuilds();
+  let sent = 0;
+  for (const guild of guilds) {
+    if (await sendNotification(guild.guild_id, embedOrText)) sent += 1;
+  }
+  return sent;
+}
+
+/**
  * 任意のチャンネルへ Embed（複数可）と添付ファイルを送る（ボカコレ通知用）
  * @param {object} params
  * @param {string} params.channelId 送信先チャンネルID
@@ -31,10 +61,11 @@ async function sendNotification(embedOrText) {
  * @param {EmbedBuilder[]} [params.embeds] 複数のEmbedを1メッセージにまとめて送る場合
  * @param {Array<{buffer: Buffer, name: string}>} [params.files] 添付ファイル（各Embedから attachment://ファイル名 で参照できる）
  */
-async function sendEmbedWithFiles({ channelId, embed, embeds, files = [] }) {
-  const targetId = channelId || config.DISCORD.CHANNEL_ID;
+async function sendEmbedWithFiles({ guildId, kind = 'notify', channelId, embed, embeds, files = [] }) {
+  const dbService = require('../database');
+  const targetId = channelId || (guildId ? dbService.resolveChannelId(guildId, kind) : null);
   if (!targetId) {
-    console.error("[ERROR] 送信先チャンネルIDが設定されていません。");
+    console.warn(`[NOTIFY] 送信先チャンネルが未設定のため送信をスキップします (guild: ${guildId})。`);
     return false;
   }
 
@@ -65,7 +96,11 @@ async function sendEmbedWithFiles({ channelId, embed, embeds, files = [] }) {
 const errorThrottle = new Map();
 const ERROR_THROTTLE_WINDOW_MS = 5 * 60 * 1000; // 5分
 
-async function sendErrorEmbed(error, title = "🚨 Runtime Error") {
+/**
+ * エラー通知。特定サーバーの処理中に起きたものは その鯖だけに、
+ * 鯖に紐づかないもの（起動時の例外など）は全サーバーに送る。
+ */
+async function sendErrorEmbed(error, title = "🚨 Runtime Error", guildId = null) {
   const errorMessage = error.stack || error.message || String(error);
   const key = `${title}::${errorMessage.slice(0, 200)}`;
   const now = Date.now();
@@ -88,7 +123,8 @@ async function sendErrorEmbed(error, title = "🚨 Runtime Error") {
     .setDescription(`\`\`\`js\n${errorMessage.slice(0, 3900)}\n\`\`\`${suppressedNote}`)
     .setTimestamp();
 
-  await sendNotification(embed);
+  if (guildId) await sendNotification(guildId, embed);
+  else await broadcastNotification(embed);
 }
 
 function startDiscordBot() {
@@ -101,4 +137,6 @@ function startDiscordBot() {
   });
 }
 
-module.exports = { client, startDiscordBot, sendNotification, sendEmbedWithFiles, sendErrorEmbed };
+module.exports = {
+  client, startDiscordBot, sendNotification, broadcastNotification, sendEmbedWithFiles, sendErrorEmbed,
+};
