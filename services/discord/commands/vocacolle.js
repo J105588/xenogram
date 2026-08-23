@@ -121,11 +121,15 @@ async function vc_toggle(interaction) {
     return await interaction.editReply("設定の更新に失敗しました。ログを確認してください。");
   }
 
-  await interaction.editReply(
-    enabled
-      ? `ボカコレ監視を **有効** にしました。次回は毎時5分（JST）に実行されます。`
-      : `ボカコレ監視を **無効** にしました。毎時のチェックはスキップされます（/vc_check は引き続き手動実行できます）。`
-  );
+  const scheduler = require('../../scheduler');
+  const scheduleNote = scheduler.applyVocacolleLinkedSchedule(enabled);
+
+  let msg = enabled
+    ? `ボカコレ監視を **有効** にしました。次回は毎時5分（JST）に実行されます。`
+    : `ボカコレ監視を **無効** にしました。毎時のチェックはスキップされます（/vc_check は引き続き手動実行できます）。`;
+  if (scheduleNote) msg += `\n${scheduleNote}`;
+
+  await interaction.editReply(msg);
 }
 
 // vc_remove の id オプション用オートコンプリート。

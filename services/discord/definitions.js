@@ -100,33 +100,6 @@ const commands = [
   },
   { name: 'status', description: 'Botの稼働状況（起動時間・メモリ・各定期ジョブの最終実行）を表示します。' },
   {
-    name: 'x_add',
-    description: 'X（旧Twitter）の監視キーワード（検索クエリ）を追加します（読み取り専用・投稿はしません）。',
-    options: [
-      { name: 'query', type: 3, description: '検索クエリ（例: 曲名やアーティスト名）', required: true },
-      { name: 'note', type: 3, description: 'メモ', required: false }
-    ]
-  },
-  { name: 'x_list', description: 'X監視キーワードの一覧を表示します。' },
-  {
-    name: 'x_remove',
-    description: 'X監視キーワードを削除します。',
-    options: [{ name: 'id', type: 4, description: '/x_list で表示されるID', required: true, autocomplete: true }]
-  },
-  { name: 'x_check', description: '【管理者】X監視を今すぐ1回実行します。', ...ADMIN_ONLY },
-  {
-    name: 'x_toggle',
-    description: '【管理者】X監視の有効/無効を切り替えます。',
-    options: [{
-      name: 'state', type: 3, description: '設定する状態', required: true,
-      choices: [
-        { name: '有効にする (ON)', value: 'on' },
-        { name: '無効にする (OFF)', value: 'off' }
-      ]
-    }],
-    ...ADMIN_ONLY
-  },
-  {
     name: 'user_add',
     description: '【管理者】監視対象のニコニコユーザーIDを追加します（複数ユーザー監視）。',
     options: [
@@ -173,8 +146,9 @@ const commands = [
           { name: '毎時 新着/キリ番/急上昇チェック', value: 'update_video_list' },
           { name: 'デイリーレポート', value: 'daily_report' },
           { name: 'ボカコレ/ランキング監視', value: 'vocacolle_watch' },
-          { name: '週次まとめレポート', value: 'weekly_report' },
-          { name: 'X(Twitter) キーワード監視', value: 'twitter_watch' }
+          { name: '週次まとめレポート', value: 'weekly_report' }
+          // 'X(Twitter) キーワード監視' (twitter_watch) は下の X_COMMANDS ブロックで
+          // config.TWITTER_MONITOR.ENABLED の時だけ動的に追加する
         ]
       },
       {
@@ -200,8 +174,49 @@ const commands = [
       }
     ],
     ...ADMIN_ONLY
-  }
+  },
 ];
+
+// X（旧Twitter）監視コマンド群。
+// 検索機能がX側のbot対策未対応で動かないため一時的に隠している。TWITTER_MONITOR_ENABLED=true
+// にするだけで、コマンド登録・/help・/status・/set_scheduleの選択肢すべてに自動的に復活する
+// （config.TWITTER_MONITOR.ENABLED を唯一の判定材料にして、表に出る経路を一箇所で制御している）。
+const X_COMMANDS = [
+  {
+    name: 'x_add',
+    description: 'X（旧Twitter）の監視キーワード（検索クエリ）を追加します（読み取り専用・投稿はしません）。',
+    options: [
+      { name: 'query', type: 3, description: '検索クエリ（例: 曲名やアーティスト名）', required: true },
+      { name: 'note', type: 3, description: 'メモ', required: false }
+    ]
+  },
+  { name: 'x_list', description: 'X監視キーワードの一覧を表示します。' },
+  {
+    name: 'x_remove',
+    description: 'X監視キーワードを削除します。',
+    options: [{ name: 'id', type: 4, description: '/x_list で表示されるID', required: true, autocomplete: true }]
+  },
+  { name: 'x_check', description: '【管理者】X監視を今すぐ1回実行します。', ...ADMIN_ONLY },
+  {
+    name: 'x_toggle',
+    description: '【管理者】X監視の有効/無効を切り替えます。',
+    options: [{
+      name: 'state', type: 3, description: '設定する状態', required: true,
+      choices: [
+        { name: '有効にする (ON)', value: 'on' },
+        { name: '無効にする (OFF)', value: 'off' }
+      ]
+    }],
+    ...ADMIN_ONLY
+  },
+];
+
+if (config.TWITTER_MONITOR.ENABLED) {
+  commands.push(...X_COMMANDS);
+
+  const setScheduleCmd = commands.find((c) => c.name === 'set_schedule');
+  setScheduleCmd.options[0].choices.push({ name: 'X(Twitter) キーワード監視', value: 'twitter_watch' });
+}
 
 async function registerCommands() {
   if (!config.DISCORD.TOKEN || !config.DISCORD.CLIENT_ID) return;

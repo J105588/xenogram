@@ -85,6 +85,17 @@ function scheduleJob(jobKey) {
 }
 
 /**
+ * 指定ジョブのcron式を設定に保存し、稼働中のタスクを差し替える（実行時に即反映）。
+ */
+function applyCronAndReschedule(jobKey, cronExpr) {
+  const existing = activeTasks.get(jobKey);
+  if (existing) existing.stop();
+
+  dbService.setSetting(JOB_DEFS[jobKey].settingKey, cronExpr);
+  scheduleJob(jobKey);
+}
+
+/**
  * 稼働中のジョブの実行時刻を実行時に変更する（/set_schedule 用）。
  * 「5分」「7時30分」「日 21時」のような自然な入力をジョブの形に応じてcron式へ変換してから
  * 適用する（cron式をそのまま渡した場合はそれを使う）。再起動不要で即座に反映する。
@@ -96,21 +107,52 @@ function rescheduleJob(jobKey, rawInput) {
   const parsed = toCronExpression(rawInput, def.scheduleShape);
   if (!parsed.ok) return { ok: false, reason: 'invalid_format', scheduleShape: def.scheduleShape };
 
-  const existing = activeTasks.get(jobKey);
-  if (existing) existing.stop();
-
-  dbService.setSetting(def.settingKey, parsed.cronExpr);
-  scheduleJob(jobKey);
+  applyCronAndReschedule(jobKey, parsed.cronExpr);
   return { ok: true, cronExpr: parsed.cronExpr };
 }
 
+// ボカコレ監視ON中は、デイリーレポートを「毎日1回」ではなく「毎時20分」に切り替える
+// （イベント期間中はより細かい頻度で各動画の伸びを追いたいという運用要望のため）。
+// OFFに戻したら、ONにする直前の設定（手動で変更していた場合もそれ）に復元する。
+const VOCA_LINKED_JOB_KEY = 'daily_report';
+const VOCA_LINKED_CRON = '20 * * * *'; // 他のジョブ（:00 :05 :10）とぶつからない分に配置
+const VOCA_LINKED_SAVED_SETTING_KEY = 'daily_report_cron_before_voca_link';
+
+/**
+ * /vc_toggle から呼ばれる。ボカコレ監視のON/OFFに合わせてデイリーレポートの
+ * スケジュールを切り替える。切り替えが発生した場合はユーザー向けの案内文を返す
+ * （何も変わらなかった場合は null）。
+ */
+function applyVocacolleLinkedSchedule(vocaEnabled) {
+  const def = JOB_DEFS[VOCA_LINKED_JOB_KEY];
+
+  if (vocaEnabled) {
+    const current = dbService.getSetting(def.settingKey);
+    if (current === VOCA_LINKED_CRON) return null; // 既に連動切り替え済み（二重トグル等）
+
+    dbService.setSetting(VOCA_LINKED_SAVED_SETTING_KEY, current);
+    applyCronAndReschedule(VOCA_LINKED_JOB_KEY, VOCA_LINKED_CRON);
+    return `📅 ボカコレ監視中は${def.label}を毎時20分に切り替えました（元の設定 \`${current}\` は保存済みで、OFFに戻すと自動で復元されます）。`;
+  }
+
+  const saved = dbService.getSetting(VOCA_LINKED_SAVED_SETTING_KEY);
+  if (saved === null) return null; // 連動切り替えを一度もしていない状態
+
+  applyCronAndReschedule(VOCA_LINKED_JOB_KEY, saved);
+  return `📅 ${def.label}を元のスケジュール \`${saved}\` に戻しました。`;
+}
+
 function listJobs() {
-  return Object.entries(JOB_DEFS).map(([key, def]) => ({
-    key,
-    label: def.label,
-    cron: dbService.getSetting(def.settingKey),
-    scheduleShape: def.scheduleShape,
-  }));
+  // enabledCheck が false のジョブ（機能まるごと config で無効化されているもの）は、
+  // /settings 等の表示からも除外する（＝実行されないジョブの存在自体を出さない）
+  return Object.entries(JOB_DEFS)
+    .filter(([, def]) => !def.enabledCheck || def.enabledCheck())
+    .map(([key, def]) => ({
+      key,
+      label: def.label,
+      cron: dbService.getSetting(def.settingKey),
+      scheduleShape: def.scheduleShape,
+    }));
 }
 
 function startScheduler() {
@@ -123,6 +165,7 @@ function startScheduler() {
 module.exports = {
   startScheduler,
   rescheduleJob,
+  applyVocacolleLinkedSchedule,
   listJobs,
   updateVideoList,
   reportEachVideoStats,

@@ -136,7 +136,11 @@ async function status(interaction) {
     dbService.getVocacolleWatchEnabled()
   ]);
 
-  let twitterLine = 'セットアップ未完了（TWITTER_MONITOR_ENABLED=false）';
+  const lastRun = scheduler.getSchedulerStatus();
+  const formatLastRun = (iso) => (iso ? formatJst(iso) : '（再起動後まだ未実行）');
+
+  // 機能自体が config で無効化されている間は、/status にも一切痕跡を出さない
+  const twitterFields = [];
   if (config.TWITTER_MONITOR.ENABLED) {
     const twitterCli = require('../../twitterCli');
     const [twitterKeywords, twitterEnabled, cliAvailable] = await Promise.all([
@@ -144,11 +148,12 @@ async function status(interaction) {
       dbService.getTwitterMonitorEnabled(),
       twitterCli.isCliAvailable(),
     ]);
-    twitterLine = `${twitterEnabled ? '有効' : '無効'} / キーワード${twitterKeywords.length}件 / twitter-cli: ${cliAvailable ? '検出済み' : '未検出'}`;
+    const twitterLine = `${twitterEnabled ? '有効' : '無効'} / キーワード${twitterKeywords.length}件 / twitter-cli: ${cliAvailable ? '検出済み' : '未検出'}`;
+    twitterFields.push(
+      { name: 'X(Twitter)監視', value: twitterLine, inline: true },
+      { name: 'X(Twitter)監視 最終実行', value: formatLastRun(lastRun.twitterWatch), inline: false }
+    );
   }
-
-  const lastRun = scheduler.getSchedulerStatus();
-  const formatLastRun = (iso) => (iso ? formatJst(iso) : '（再起動後まだ未実行）');
 
   const mem = process.memoryUsage();
   const uptimeSec = Math.floor(process.uptime());
@@ -166,12 +171,11 @@ async function status(interaction) {
       { name: '監視動画数', value: `${videos.length}本`, inline: true },
       { name: 'ボカコレキーワード', value: `${keywords.length}件`, inline: true },
       { name: 'ボカコレ監視', value: watchEnabled ? '有効' : '無効', inline: true },
-      { name: 'X(Twitter)監視', value: twitterLine, inline: true },
+      ...twitterFields,
       { name: '毎時 新着/キリ番チェック 最終実行', value: formatLastRun(lastRun.updateVideoList), inline: false },
       { name: '毎朝 デイリーレポート 最終実行', value: formatLastRun(lastRun.reportEachVideoStats), inline: false },
       { name: 'ボカコレ監視 最終実行', value: formatLastRun(lastRun.vocacolleWatch), inline: false },
-      { name: '週次レポート 最終実行', value: formatLastRun(lastRun.weeklyReport), inline: false },
-      { name: 'X(Twitter)監視 最終実行', value: formatLastRun(lastRun.twitterWatch), inline: false }
+      { name: '週次レポート 最終実行', value: formatLastRun(lastRun.weeklyReport), inline: false }
     )
     .setFooter({ text: config.FOOTER_TEXT })
     .setTimestamp();

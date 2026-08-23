@@ -1,5 +1,4 @@
 const { db } = require('./db');
-const { getAllVideos } = require('./videos');
 
 /**
  * 特定の動画の最新の統計情報を取得
@@ -120,16 +119,50 @@ async function getRecentStatsHistory(videoId, hours = 24) {
 }
 
 /**
- * 全動画の最新の統計情報を取得する（ランキングや成長率計算用）
+ * 全動画の最新の統計情報を取得する（ランキングや成長率計算用）。
+ * 以前は動画本数ぶんSELECTを繰り返すN+1構成だったが、相関サブクエリで
+ * 「動画ごとの最新video_stats行のid」を求めてJOINする1回のクエリにまとめた
+ * （既存の idx_video_stats_video_id_recorded_at インデックスがそのまま効く）。
+ * 返す形（[{video, stats}, ...]）と並び順（published_at降順・NULLは末尾）は変更していない。
  */
 async function getAllLatestStats() {
-  const videos = await getAllVideos();
-  const results = [];
-  for (const v of videos) {
-    const stats = await getLatestStats(v.id);
-    if (stats) results.push({ video: v, stats });
+  try {
+    const rows = db.prepare(`
+      SELECT
+        v.id AS video_id, v.title AS video_title, v.published_at AS video_published_at,
+        v.added_at, v.tags, v.thumbnail_url,
+        vs.id AS stats_id, vs.video_id AS stats_video_id, vs.views, vs.comments,
+        vs.mylists, vs.likes, vs.recorded_at
+      FROM videos v
+      JOIN video_stats vs ON vs.id = (
+        SELECT id FROM video_stats WHERE video_id = v.id ORDER BY recorded_at DESC LIMIT 1
+      )
+      ORDER BY (v.published_at IS NULL), v.published_at DESC
+    `).all();
+
+    return rows.map((row) => ({
+      video: {
+        id: row.video_id,
+        title: row.video_title,
+        published_at: row.video_published_at,
+        added_at: row.added_at,
+        tags: row.tags,
+        thumbnail_url: row.thumbnail_url,
+      },
+      stats: {
+        id: row.stats_id,
+        video_id: row.stats_video_id,
+        views: row.views,
+        comments: row.comments,
+        mylists: row.mylists,
+        likes: row.likes,
+        recorded_at: row.recorded_at,
+      },
+    }));
+  } catch (error) {
+    console.error("Error getting all latest stats:", error);
+    return [];
   }
-  return results;
 }
 
 module.exports = {
