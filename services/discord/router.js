@@ -5,6 +5,7 @@ const videoCmds = require('./commands/videos');
 const vocacolleCmds = require('./commands/vocacolle');
 const settingsCmds = require('./commands/settings');
 const systemCmds = require('./commands/system');
+const twitterCmds = require('./commands/twitter');
 
 const handlers = {
   ...miscCmds,
@@ -12,6 +13,7 @@ const handlers = {
   ...vocacolleCmds,
   ...settingsCmds,
   ...systemCmds,
+  ...twitterCmds,
 };
 
 // video_id/id/user_id等、手打ちしにくいIDを入力補完するオートコンプリート。
@@ -23,6 +25,7 @@ const AUTOCOMPLETE = {
   vc_remove: vocacolleCmds.autocompleteKeywordId,
   user_remove: settingsCmds.autocompleteUserId,
   set_schedule: settingsCmds.autocompleteScheduleInput,
+  x_remove: twitterCmds.autocompleteKeywordId,
 };
 
 /**

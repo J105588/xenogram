@@ -12,6 +12,7 @@ const DEFAULTS = {
   cron_daily_report: () => '0 7 * * *',
   cron_vocacolle_watch: () => config.VOCACOLLE.CRON,
   cron_weekly_report: () => config.WEEKLY_REPORT.CRON,
+  cron_twitter_watch: () => config.TWITTER_MONITOR.CRON,
 };
 
 const NUMERIC_KEYS = new Set([

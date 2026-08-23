@@ -6,6 +6,7 @@ const lastRunAt = {
   reportEachVideoStats: null,
   vocacolleWatch: null,
   weeklyReport: null,
+  twitterWatch: null,
 };
 
 function markRun(jobName) {

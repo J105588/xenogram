@@ -26,7 +26,8 @@ async function sendStartupNotice(videoCount) {
   await sendNotification(embed);
 }
 
-client.once('ready', async () => {
+// discord.js v15で 'ready' が廃止され 'clientReady' に一本化される予定のため、先行して新名称を使う
+client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
   const videos = await dbService.getAllVideos();
   client.user.setActivity(`${videos.length}本の動画を監視中`, { type: 3 });

@@ -96,6 +96,27 @@ CREATE TABLE IF NOT EXISTS nico_users (
   label      TEXT,
   added_at   TEXT NOT NULL
 );
+
+-- X（旧Twitter）キーワード監視（読み取り専用）。twitter-cli の検索結果を
+-- 定期的に照合し、ヒットしたツイートをDiscordに通知する（投稿は行わない）
+CREATE TABLE IF NOT EXISTS twitter_keywords (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  query      TEXT NOT NULL UNIQUE,
+  note       TEXT,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+
+-- 通知済みツイートの重複防止（同じツイートを何度も通知しない）
+CREATE TABLE IF NOT EXISTS twitter_detections (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  keyword_id  INTEGER NOT NULL REFERENCES twitter_keywords(id) ON DELETE CASCADE,
+  tweet_id    TEXT NOT NULL,
+  author      TEXT,
+  detected_at TEXT NOT NULL,
+  UNIQUE (keyword_id, tweet_id)
+);
+CREATE INDEX IF NOT EXISTS idx_twitter_detections_detected_at ON twitter_detections(detected_at DESC);
 `);
 
 // 設定行は常に1行だけ存在する前提（無ければ有効な状態で作る）

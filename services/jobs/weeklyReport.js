@@ -4,6 +4,7 @@ const discordService = require('../discord');
 const utils = require('../../utils');
 const config = require('../../config');
 const { markRun } = require('./status');
+const { withSingleFlight } = require('../singleFlight');
 
 /**
  * 【毎週日曜21時に実行】週の総括レポート。
@@ -11,8 +12,18 @@ const { markRun } = require('./status');
  * 日次レポートは「前日比」だが、こちらは「7日前比」で1週間分の伸びを見る。
  * video_stats が毎時1行の履歴になったことで、7日分のグラフも意味のある
  * 粒度で描けるようになったため追加した。
+ * 手動実行と自動実行が重なっても二重送信されないよう、常に1本だけ走らせる。
  */
 async function sendWeeklyReport() {
+  const outcome = await withSingleFlight('weeklyReport', sendWeeklyReportInner);
+  if (!outcome.ok) {
+    console.warn("[WEEKLY] 前回の週次レポートがまだ完了していないため、今回はスキップします");
+    return { skipped: 'already_running' };
+  }
+  return outcome.result;
+}
+
+async function sendWeeklyReportInner() {
   console.log("Running weekly report...");
 
   if (!config.DISCORD.CHANNEL_ID) {
@@ -66,7 +77,7 @@ async function sendWeeklyReport() {
     .setDescription(`監視中 ${rows.length}本 / 今週の合計再生増加: **${totalViewGrowth.toLocaleString()}**`)
     .addFields(
       ranked.slice(0, 5).map((r, i) => ({
-        name: `${i + 1}位 ${r.video.title}`,
+        name: utils.truncate(`${i + 1}位 ${r.video.title}`, 256),
         value: `再生 ${utils.formatDiff(r.diff.view)}・いいね ${utils.formatDiff(r.diff.like)}`,
         inline: false,
       }))
@@ -82,7 +93,7 @@ async function sendWeeklyReport() {
       const chartUrl = utils.generateChartUrl(history);
 
       const embed = new EmbedBuilder()
-        .setTitle(`週報: ${video.title}`)
+        .setTitle(utils.truncate(`週報: ${video.title}`, 256))
         .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
         .setColor(parseInt(config.CHART_COLOR, 16))
         .setThumbnail(video.thumbnail_url)

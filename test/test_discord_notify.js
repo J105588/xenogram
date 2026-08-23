@@ -4,7 +4,7 @@ require('dotenv').config();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const channelId = process.env.DISCORD_CHANNEL_ID;
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}. Testing channel ID: ${channelId}`);
   try {
     if (!channelId) throw new Error("DISCORD_CHANNEL_ID is missing in .env!");

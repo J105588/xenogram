@@ -25,7 +25,7 @@ async function stats(interaction) {
   const chartUrl = utils.generateChartUrl(history);
 
   const embed = new EmbedBuilder()
-    .setTitle(`Analytics: ${apiData.title}`)
+    .setTitle(utils.truncate(`Analytics: ${apiData.title}`, 256))
     .setURL(`https://www.nicovideo.jp/watch/${videoId}`)
     .setColor(parseInt(config.CHART_COLOR, 16))
     .setThumbnail(apiData.thumbnail)
@@ -109,12 +109,12 @@ async function compare(interaction) {
     .setColor(0x9b59b6)
     .addFields(
       {
-        name: `A: ${data1.title} (${v1})`,
+        name: utils.truncate(`A: ${data1.title} (${v1})`, 256),
         value: `再生: ${data1.view.toLocaleString()}\nいいね: ${data1.like.toLocaleString()}\nマイリスト: ${data1.mylist.toLocaleString()}\nコメント: ${data1.comment.toLocaleString()}` +
           (g1 ? `\n直近${g1.spanHours}h伸び: 再生 ${utils.formatDiff(g1.view)} / いいね ${utils.formatDiff(g1.like)}` : '\n（監視外のため伸び率は算出不可）')
       },
       {
-        name: `B: ${data2.title} (${v2})`,
+        name: utils.truncate(`B: ${data2.title} (${v2})`, 256),
         value: `再生: ${data2.view.toLocaleString()}\nいいね: ${data2.like.toLocaleString()}\nマイリスト: ${data2.mylist.toLocaleString()}\nコメント: ${data2.comment.toLocaleString()}` +
           (g2 ? `\n直近${g2.spanHours}h伸び: 再生 ${utils.formatDiff(g2.view)} / いいね ${utils.formatDiff(g2.like)}` : '\n（監視外のため伸び率は算出不可）')
       },
@@ -138,15 +138,23 @@ async function compare(interaction) {
 async function force_update(interaction) {
   await interaction.editReply("⏳ updateVideoList (1時間毎の処理) を実行中です...");
   const scheduler = require('../../scheduler');
-  await scheduler.updateVideoList();
-  await interaction.followUp("✅ 手動更新処理が完了しました。");
+  const result = await scheduler.updateVideoList();
+  await interaction.followUp(
+    result && result.skipped === 'already_running'
+      ? "⚠️ 前回の更新処理がまだ終わっていないため、今回はスキップしました。少し待ってからもう一度お試しください。"
+      : "✅ 手動更新処理が完了しました。"
+  );
 }
 
 async function daily_report(interaction) {
   await interaction.editReply("⏳ デイリーレポートを実行し、通知チャンネルに送信しています...");
   const scheduler = require('../../scheduler');
-  await scheduler.reportEachVideoStats();
-  await interaction.followUp("✅ デイリーレポートの送信処理が完了しました。");
+  const result = await scheduler.reportEachVideoStats();
+  await interaction.followUp(
+    result && result.skipped === 'already_running'
+      ? "⚠️ 前回のデイリーレポートがまだ終わっていないため、今回はスキップしました。少し待ってからもう一度お試しください。"
+      : "✅ デイリーレポートの送信処理が完了しました。"
+  );
 }
 
 async function ranking(interaction) {
@@ -208,9 +216,9 @@ async function exportCsv(interaction) {
   allStats.forEach(item => {
     csv += `${item.video.id},"${item.video.title.replace(/"/g, '""')}",${item.stats.views},${item.stats.likes},${item.stats.mylists},${item.stats.comments},${item.stats.recorded_at}\n`;
   });
-  const fs = require('fs');
-  fs.writeFileSync('./stats_export.csv', csv);
-  const file = new AttachmentBuilder('./stats_export.csv');
+  // ディスクに書かず直接メモリ上のBufferから添付する
+  // （固定パスへの書き込みだと、複数人が同時に /export した際にファイルが競合する）
+  const file = new AttachmentBuilder(Buffer.from(csv, 'utf8'), { name: 'stats_export.csv' });
   await interaction.editReply({ content: "📊 最新の統計データCSVです：", files: [file] });
 }
 

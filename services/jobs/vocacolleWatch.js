@@ -5,6 +5,7 @@ const dbService = require('../database');
 const discordService = require('../discord');
 const config = require('../../config');
 const { markRun } = require('./status');
+const { withSingleFlight } = require('../singleFlight');
 
 /**
  * 現在ヒットしている（新規ではない）曲について、前回記録した順位と比べて
@@ -233,25 +234,20 @@ async function checkOnePage(url, keywords, { force, notifySummary, summaryScreen
  * @param {boolean} [options.summaryScreenshot] false を渡すとサマリーのスクショを省略する（既定は true）
  * @returns {Promise<{checked: number, hits: number, notified: number, rankingTitle: string, skipped?: string}>}
  */
-let vocacolleWatchInFlight = false;
-
 async function runVocacolleWatch(options = {}) {
   const { force = false, bypassToggle = false, notifySummary = false, summaryScreenshot = true } = options;
 
   // 同時に複数のChromiumが立ち上がると無駄にメモリを食い、
   // ランキングページへの同時アクセスも増えるため、常に1本だけ走らせる。
   // （毎時の自動実行中に手動 /vc_check を叩いた場合などを弾く）
-  if (vocacolleWatchInFlight) {
+  const outcome = await withSingleFlight('vocacolleWatch', () =>
+    runVocacolleWatchInner({ force, bypassToggle, notifySummary, summaryScreenshot })
+  );
+  if (!outcome.ok) {
     console.warn("[VOCACOLLE] 前回の実行がまだ完了していないため、今回はスキップします");
     return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'already_running' };
   }
-  vocacolleWatchInFlight = true;
-
-  try {
-    return await runVocacolleWatchInner({ force, bypassToggle, notifySummary, summaryScreenshot });
-  } finally {
-    vocacolleWatchInFlight = false;
-  }
+  return outcome.result;
 }
 
 async function runVocacolleWatchInner({ force, bypassToggle, notifySummary, summaryScreenshot }) {

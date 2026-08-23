@@ -5,23 +5,39 @@ const discordService = require('../discord');
 const utils = require('../../utils');
 const config = require('../../config');
 const { markRun } = require('./status');
+const { withSingleFlight } = require('../singleFlight');
 
 // 急上昇検知の連続通知を防ぐクールダウン（動画IDごとに最後に通知した時刻を覚えておく）。
 // プロセス内メモリのみで保持するため、再起動すると各動画のクールダウンはリセットされる
 const spikeLastNotifiedAt = new Map();
 
+// 実行間隔が極端に短い場合（例: /set_schedule で1分間隔にした等）に、
+// わずかな伸びが「1時間換算」で大きく水増しされて誤検知しないようにする下限
+const MIN_SPIKE_INTERVAL_HOURS = 5 / 60; // 5分
+
 /**
- * 直近1時間の再生数の伸びが閾値を超えていたら「急上昇中」として通知する。
+ * 直近の記録からの再生数の伸びを「1時間あたり」に正規化して閾値と比較し、
+ * 超えていれば「急上昇中」として通知する。
+ * update_video_list の実行間隔は /set_schedule で自由に変更できるため、
+ * 単純な前回比ではなく実際の経過時間で正規化しないと、間隔を短くすると
+ * 過小評価に、長くすると過大評価（＝毎回誤検知）になってしまう。
  * 同じ動画への連続通知は spike_cooldown_hours 設定の間は抑制する。
  * 閾値・クールダウンは /set_spike で変更可能（未設定なら環境変数のデフォルト値）。
  */
-async function checkSpike(video, oldViews, newViews) {
+async function checkSpike(video, latestDbStats, newViews) {
   if (!config.SPIKE_DETECTION.ENABLED) return;
   const threshold = dbService.getSetting('spike_view_threshold_per_hour');
   const cooldownHours = dbService.getSetting('spike_cooldown_hours');
 
-  const growth = newViews - oldViews;
-  if (growth < threshold) return;
+  const growth = newViews - latestDbStats.views;
+  if (growth <= 0) return;
+
+  const elapsedHours = Math.max(
+    MIN_SPIKE_INTERVAL_HOURS,
+    (Date.now() - new Date(latestDbStats.recorded_at).getTime()) / (60 * 60 * 1000)
+  );
+  const hourlyRate = growth / elapsedHours;
+  if (hourlyRate < threshold) return;
 
   const lastNotified = spikeLastNotifiedAt.get(video.id);
   const cooldownMs = cooldownHours * 60 * 60 * 1000;
@@ -29,10 +45,14 @@ async function checkSpike(video, oldViews, newViews) {
 
   spikeLastNotifiedAt.set(video.id, Date.now());
 
+  const elapsedMinutes = Math.round(elapsedHours * 60);
   await discordService.sendNotification(
     new EmbedBuilder()
       .setTitle('🔥 急上昇中！')
-      .setDescription(`**${video.title}** がこの1時間で **+${growth.toLocaleString()}再生** 伸びています！`)
+      .setDescription(
+        `**${utils.truncate(video.title, 200)}** が直近${elapsedMinutes}分で **+${growth.toLocaleString()}再生** 伸びています！` +
+        `\n（1時間あたり換算: 約${Math.round(hourlyRate).toLocaleString()}再生）`
+      )
       .setColor(0xff6b35)
       .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
       .setThumbnail(video.thumbnail_url)
@@ -42,9 +62,20 @@ async function checkSpike(video, oldViews, newViews) {
 }
 
 /**
- * 【1時間ごとに実行】新着動画の検知とマイルストーンチェック
+ * 【1時間ごとに実行】新着動画の検知とマイルストーンチェック。
+ * cronの自動実行と /force_update による手動実行が重なっても二重処理
+ * （新着の二重通知・統計の二重記録）にならないよう、常に1本だけ走らせる。
  */
 async function updateVideoList() {
+  const outcome = await withSingleFlight('updateVideoList', updateVideoListInner);
+  if (!outcome.ok) {
+    console.warn("[UPDATE] 前回の updateVideoList がまだ完了していないため、今回はスキップします");
+    return { skipped: 'already_running' };
+  }
+  return outcome.result;
+}
+
+async function updateVideoListInner() {
   console.log("Running hourly updateVideoList...");
 
   // 監視対象ユーザーの全投稿動画を一括取得する（1回のAPI呼び出し）。
@@ -121,7 +152,7 @@ async function updateVideoList() {
         }
 
         // 急上昇検知（再生数の伸びだけを見る）
-        await checkSpike(video, latestDbStats.views, apiData.view);
+        await checkSpike(video, latestDbStats, apiData.view);
       }
 
       // タグやサムネが更新されていればDBも更新。

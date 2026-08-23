@@ -107,10 +107,24 @@ function getUpcomingMilestone(currentValue, step = 100) {
   };
 }
 
+/**
+ * 外部API由来の文字列（動画タイトル等）をDiscord Embedの文字数上限内に収める。
+ * 上限を超えたまま .setTitle() 等に渡すと例外で処理全体が落ちるため、
+ * 表示直前に必ずこれを通す。
+ * @param {string} str
+ * @param {number} maxLen
+ */
+function truncate(str, maxLen) {
+  const s = str == null ? '' : String(str);
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
 module.exports = {
   generateChartUrl,
   calculateDiff,
   formatDiff,
   checkMilestone,
-  getUpcomingMilestone
+  getUpcomingMilestone,
+  truncate
 };

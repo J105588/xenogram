@@ -1,5 +1,18 @@
-const { REST, Routes } = require('discord.js');
+const { REST, Routes, PermissionFlagsBits } = require('discord.js');
 const config = require('../../config');
+
+// 【管理者】表記のコマンドは default_member_permissions で実際に権限を絞る
+// （Discord側で非管理者からは実行はおろか一覧にも出なくなる）。
+// 説明文の表記だけで、実際の権限チェックが存在しなかった状態を修正するためのもの。
+//
+// dm_permission: false も併せて指定する。default_member_permissions は
+// 「サーバーメンバーの権限」に基づく判定のため、DM（サーバー外）にはそもそも
+// 適用できない。dm_permission を明示的にfalseにしないと、グローバルコマンド
+// 登録時（DISCORD_GUILD_ID未設定時）はDM経由で誰でも実行できてしまう抜け道が残る。
+const ADMIN_ONLY = {
+  default_member_permissions: PermissionFlagsBits.Administrator.toString(),
+  dm_permission: false,
+};
 
 // スラッシュコマンドの定義。/help の一覧表示にもそのまま使う。
 const commands = [
@@ -29,8 +42,9 @@ const commands = [
       { name: 'video_id2', type: 3, description: '動画ID 2', required: true, autocomplete: true }
     ]
   },
-  { name: 'force_update', description: '【管理者】1時間に1回の定期更新を手動で実行します。' },
-  { name: 'daily_report', description: '【管理者】毎朝のデイリーレポートを手動で実行します。' },
+  { name: 'force_update', description: '【管理者】1時間に1回の定期更新を手動で実行します。', ...ADMIN_ONLY },
+  { name: 'daily_report', description: '【管理者】毎朝のデイリーレポートを手動で実行します。', ...ADMIN_ONLY },
+  { name: 'restart', description: '【管理者】Botプロセスを再起動します（PM2運用時のみ自動復帰）。', ...ADMIN_ONLY },
   {
     name: 'ranking',
     description: '監視中動画のランキングを表示します。',
@@ -71,7 +85,7 @@ const commands = [
     description: 'ボカコレ監視キーワードを削除します。',
     options: [{ name: 'id', type: 4, description: '/vc_list で表示されるID', required: true, autocomplete: true }]
   },
-  { name: 'vc_check', description: '【管理者】ボカコレ監視を今すぐ1回実行します。' },
+  { name: 'vc_check', description: '【管理者】ボカコレ監視を今すぐ1回実行します。', ...ADMIN_ONLY },
   {
     name: 'vc_toggle',
     description: '【管理者】ボカコレ監視の有効/無効を切り替えます。',
@@ -81,27 +95,58 @@ const commands = [
         { name: '有効にする (ON)', value: 'on' },
         { name: '無効にする (OFF)', value: 'off' }
       ]
-    }]
+    }],
+    ...ADMIN_ONLY
   },
   { name: 'status', description: 'Botの稼働状況（起動時間・メモリ・各定期ジョブの最終実行）を表示します。' },
+  {
+    name: 'x_add',
+    description: 'X（旧Twitter）の監視キーワード（検索クエリ）を追加します（読み取り専用・投稿はしません）。',
+    options: [
+      { name: 'query', type: 3, description: '検索クエリ（例: 曲名やアーティスト名）', required: true },
+      { name: 'note', type: 3, description: 'メモ', required: false }
+    ]
+  },
+  { name: 'x_list', description: 'X監視キーワードの一覧を表示します。' },
+  {
+    name: 'x_remove',
+    description: 'X監視キーワードを削除します。',
+    options: [{ name: 'id', type: 4, description: '/x_list で表示されるID', required: true, autocomplete: true }]
+  },
+  { name: 'x_check', description: '【管理者】X監視を今すぐ1回実行します。', ...ADMIN_ONLY },
+  {
+    name: 'x_toggle',
+    description: '【管理者】X監視の有効/無効を切り替えます。',
+    options: [{
+      name: 'state', type: 3, description: '設定する状態', required: true,
+      choices: [
+        { name: '有効にする (ON)', value: 'on' },
+        { name: '無効にする (OFF)', value: 'off' }
+      ]
+    }],
+    ...ADMIN_ONLY
+  },
   {
     name: 'user_add',
     description: '【管理者】監視対象のニコニコユーザーIDを追加します（複数ユーザー監視）。',
     options: [
       { name: 'user_id', type: 3, description: 'ニコニコのユーザーID（数字）', required: true },
       { name: 'label', type: 3, description: '識別用のメモ（任意）', required: false }
-    ]
+    ],
+    ...ADMIN_ONLY
   },
   {
     name: 'user_remove',
     description: '【管理者】監視対象のニコニコユーザーIDを削除します。',
-    options: [{ name: 'user_id', type: 3, description: 'ニコニコのユーザーID', required: true, autocomplete: true }]
+    options: [{ name: 'user_id', type: 3, description: 'ニコニコのユーザーID', required: true, autocomplete: true }],
+    ...ADMIN_ONLY
   },
   { name: 'user_list', description: '現在監視中のニコニコユーザーID一覧を表示します。' },
   {
     name: 'set_milestone',
     description: '【管理者】マイルストーン（キリ番）の判定単位を変更します。',
-    options: [{ name: 'step', type: 4, description: '例: 100, 1000', required: true }]
+    options: [{ name: 'step', type: 4, description: '例: 100, 1000', required: true }],
+    ...ADMIN_ONLY
   },
   {
     name: 'set_spike',
@@ -109,12 +154,14 @@ const commands = [
     options: [
       { name: 'threshold', type: 4, description: '1時間あたりこの再生数以上で急上昇と判定', required: true },
       { name: 'cooldown_hours', type: 4, description: '同じ動画への再通知までの間隔（時間）', required: false }
-    ]
+    ],
+    ...ADMIN_ONLY
   },
   {
     name: 'set_rank_threshold',
     description: '【管理者】ボカコレ順位変動通知のしきい値を変更します。',
-    options: [{ name: 'positions', type: 4, description: 'この順位差以上動いたら通知', required: true }]
+    options: [{ name: 'positions', type: 4, description: 'この順位差以上動いたら通知', required: true }],
+    ...ADMIN_ONLY
   },
   {
     name: 'set_schedule',
@@ -126,7 +173,8 @@ const commands = [
           { name: '毎時 新着/キリ番/急上昇チェック', value: 'update_video_list' },
           { name: 'デイリーレポート', value: 'daily_report' },
           { name: 'ボカコレ/ランキング監視', value: 'vocacolle_watch' },
-          { name: '週次まとめレポート', value: 'weekly_report' }
+          { name: '週次まとめレポート', value: 'weekly_report' },
+          { name: 'X(Twitter) キーワード監視', value: 'twitter_watch' }
         ]
       },
       {
@@ -134,7 +182,8 @@ const commands = [
         description: '実行時刻（例: 5分 / 7時30分 / 日 21時）。cron式もそのまま使えます',
         required: true, autocomplete: true
       }
-    ]
+    ],
+    ...ADMIN_ONLY
   },
   { name: 'settings', description: '現在のマイルストーン・急上昇・実行スケジュール等の設定値を一覧表示します。' },
   {
@@ -149,7 +198,8 @@ const commands = [
           { name: 'エラーのみ', value: 'error' }
         ]
       }
-    ]
+    ],
+    ...ADMIN_ONLY
   }
 ];
 

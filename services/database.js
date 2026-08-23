@@ -6,6 +6,7 @@ const stats = require('./repositories/stats');
 const vocacolle = require('./repositories/vocacolle');
 const settings = require('./repositories/settings');
 const nicoUsers = require('./repositories/nicoUsers');
+const twitter = require('./repositories/twitter');
 
 module.exports = {
   ...videos,
@@ -13,4 +14,5 @@ module.exports = {
   ...vocacolle,
   ...settings,
   ...nicoUsers,
+  ...twitter,
 };

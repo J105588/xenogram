@@ -11,6 +11,7 @@ const { updateVideoList } = require('./jobs/updateVideoList');
 const { reportEachVideoStats } = require('./jobs/dailyReport');
 const { runVocacolleWatch } = require('./jobs/vocacolleWatch');
 const { sendWeeklyReport } = require('./jobs/weeklyReport');
+const { runTwitterWatch } = require('./jobs/twitterWatch');
 const { getSchedulerStatus } = require('./jobs/status');
 
 // ジョブ定義: /set_schedule コマンドで実行時刻を変更できるよう、
@@ -47,6 +48,15 @@ const JOB_DEFS = {
     run: () => sendWeeklyReport(),
     errorTitle: '🚨 Scheduler: Weekly Report Failed',
     enabledCheck: () => config.WEEKLY_REPORT.ENABLED,
+  },
+  twitter_watch: {
+    settingKey: 'cron_twitter_watch',
+    label: 'X(Twitter) キーワード監視（読み取り専用）',
+    scheduleShape: 'hourly',
+    run: () => runTwitterWatch(),
+    errorTitle: '🚨 Scheduler: Twitter Watch Failed',
+    // 未セットアップの環境では無効のままにし、cronにも登録しない（TWITTER_MONITOR_ENABLED=true が必要）
+    enabledCheck: () => config.TWITTER_MONITOR.ENABLED,
   },
 };
 
@@ -118,5 +128,6 @@ module.exports = {
   reportEachVideoStats,
   runVocacolleWatch,
   sendWeeklyReport,
+  runTwitterWatch,
   getSchedulerStatus
 };

@@ -5,11 +5,23 @@ const discordService = require('../discord');
 const utils = require('../../utils');
 const config = require('../../config');
 const { markRun } = require('./status');
+const { withSingleFlight } = require('../singleFlight');
 
 /**
- * 【毎朝7時に実行】各動画の前日比とグラフを含むレポート送信
+ * 【毎朝7時に実行】各動画の前日比とグラフを含むレポート送信。
+ * /daily_report による手動実行と自動実行が重なっても二重送信されないよう、
+ * 常に1本だけ走らせる。
  */
 async function reportEachVideoStats() {
+  const outcome = await withSingleFlight('reportEachVideoStats', reportEachVideoStatsInner);
+  if (!outcome.ok) {
+    console.warn("[DAILY] 前回のデイリーレポートがまだ完了していないため、今回はスキップします");
+    return { skipped: 'already_running' };
+  }
+  return outcome.result;
+}
+
+async function reportEachVideoStatsInner() {
   console.log("Running daily reportEachVideoStats...");
 
   if (!config.DISCORD.CHANNEL_ID) {
@@ -37,7 +49,7 @@ async function reportEachVideoStats() {
       const chartUrl = utils.generateChartUrl(history);
 
       const embed = new EmbedBuilder()
-        .setTitle(`Analytics: ${apiData.title}`)
+        .setTitle(utils.truncate(`Analytics: ${apiData.title}`, 256))
         .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
         .setColor(parseInt(config.CHART_COLOR, 16))
         .setThumbnail(apiData.thumbnail)
