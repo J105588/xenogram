@@ -7,3 +7,5 @@ main.gs.old
 test/output/
 logs/
 data/
+
+.VSCodeCounter
