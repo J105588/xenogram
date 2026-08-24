@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS nico_users (
   added_at   TEXT NOT NULL
 );
 
--- X（旧Twitter）キーワード監視（読み取り専用）。twitter-cli の検索結果を
+-- X（旧Twitter）キーワード監視（読み取り専用）。X内部APIの検索結果を
 -- 定期的に照合し、ヒットしたツイートをDiscordに通知する（投稿は行わない）
 CREATE TABLE IF NOT EXISTS twitter_keywords (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

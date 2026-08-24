@@ -10,7 +10,7 @@ async function x_add(interaction, { guildId }) {
   if (!config.TWITTER_MONITOR.ENABLED) {
     return await interaction.editReply(
       '⚠️ X監視は現在無効です（TWITTER_MONITOR_ENABLED=false）。キーワードは登録されますが、' +
-      'twitter-cliのセットアップと環境変数の有効化が完了するまで実行はされません。'
+      'TWITTER_CT0/TWITTER_AUTH_TOKENの設定と環境変数の有効化が完了するまで実行はされません。'
     );
   }
 
@@ -48,7 +48,7 @@ async function x_remove(interaction, { guildId }) {
 async function x_check(interaction, { guildId }) {
   if (!config.TWITTER_MONITOR.ENABLED) {
     return await interaction.editReply(
-      '⚠️ X監視は現在無効です（TWITTER_MONITOR_ENABLED=false）。.env の設定とtwitter-cliのセットアップを確認してください。'
+      '⚠️ X監視は現在無効です（TWITTER_MONITOR_ENABLED=false）。.env の TWITTER_CT0/TWITTER_AUTH_TOKEN の設定を確認してください。'
     );
   }
 
@@ -66,14 +66,13 @@ async function x_check(interaction, { guildId }) {
     await interaction.followUp('監視キーワードが1件も登録されていません。/x_add で登録してください。');
   } else if (result.skipped === 'cli_unavailable') {
     await interaction.followUp(
-      `❌ twitter-cli（\`${config.TWITTER_MONITOR.CLI_BIN}\`）が見つかりませんでした。インストールとPATH設定を確認してください。` +
-      '\n参考: https://github.com/public-clis/twitter-cli'
+      '❌ TWITTER_CT0 / TWITTER_AUTH_TOKEN が未設定です。.env に設定してください。'
     );
   } else if (result.failedKeywords > 0) {
     await interaction.followUp(
       `⚠️ 確認完了: ${result.checked}件中 **${result.failedKeywords}件の検索が失敗**しました（新規ヒット ${result.hits}件 / 通知 ${result.notified}件）。\n` +
       `直近のエラー: \`${result.lastError}\`\n` +
-      'twitter-cli側の一時的な不調、またはXの仕様変更への未対応の可能性があります。詳細はサーバーログをご確認ください。'
+      'Cookie（ct0/auth_token）の期限切れ、またはXの仕様変更への未対応の可能性があります。詳細はサーバーログをご確認ください。'
     );
   } else {
     await interaction.followUp(`確認完了: ${result.checked}件のキーワードを検索し、新規ヒット ${result.hits}件 / 通知 ${result.notified}件でした。`);

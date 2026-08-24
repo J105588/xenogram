@@ -1,6 +1,20 @@
 // システム全体のタイムゾーンを日本時間(JST)に設定
 process.env.TZ = 'Asia/Tokyo';
 
+// このBotは専用サーバーではなく普段使いのデスクトップPC上でPM2常駐させている。
+// Discord・VSCode・ブラウザ・ゲーム等の前面アプリと常にCPUを取り合っており、
+// Windowsは非フォーカスのバックグラウンドプロセス（このNodeプロセスもその1つ）の
+// スケジューリングを動的に後回しにすることがある。これが数秒〜十数秒単位で
+// イベントループの処理が遅延する原因となり、Discordの応答期限（3秒）を過ぎて
+// "Unknown interaction" エラーになる一因になっていた。
+// 自分自身の優先度を一段階上げておくことで、後回しにされにくくする。
+try {
+  const os = require('os');
+  os.setPriority(process.pid, os.constants.priority.PRIORITY_ABOVE_NORMAL);
+} catch (err) {
+  console.warn('[STARTUP] プロセス優先度の変更に失敗しました（続行します）:', err.message);
+}
+
 const express = require('express');
 const config = require('./config');
 const { startDiscordBot } = require('./services/discord');

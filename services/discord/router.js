@@ -33,6 +33,16 @@ const AUTOCOMPLETE = {
 };
 
 /**
+ * インタラクションの応答期限（3秒、または応答済みトークンなら15分）切れによる
+ * 「Unknown interaction」（DiscordAPIError code 10062）かどうかを判定する。
+ * 期限切れは何度リトライしても必ず失敗するため、これ以上の応答試行やエラー通知は
+ * 無意味であり、ログを埋めるだけなので呼び出し側で早期に諦めさせる。
+ */
+function isUnknownInteractionError(err) {
+  return err && err.code === 10062;
+}
+
+/**
  * 本人にだけ見えるエラー応答を返す。既に応答済みかどうかで呼び分けが変わるうえ、
  * この応答自体が失敗しても元のエラーを握りつぶしたくないので握りつぶす。
  */
@@ -44,6 +54,10 @@ async function replyQuietly(interaction, content) {
       await interaction.reply({ content, ephemeral: true });
     }
   } catch (err) {
+    if (isUnknownInteractionError(err)) {
+      console.warn('[INTERACTION] トークン期限切れのため応答を諦めます（Unknown interaction）');
+      return;
+    }
     console.error('Failed to send error message to user:', err);
   }
 }
@@ -91,6 +105,10 @@ function attachInteractionHandler(client) {
         await handleEditSelect(interaction);
       } catch (err) {
         console.error('Edit Select Error:', err);
+        if (isUnknownInteractionError(err)) {
+          console.warn('[INTERACTION] トークン期限切れのため応答を諦めます（Unknown interaction）');
+          return;
+        }
         await sendErrorEmbed(err, '🚨 Edit Menu Error', interaction.guildId);
         await replyQuietly(interaction, '❌ 編集フォームを開けませんでした。ログを確認してください。');
       }
@@ -103,6 +121,10 @@ function attachInteractionHandler(client) {
         await handleEditModal(interaction);
       } catch (err) {
         console.error('Edit Modal Error:', err);
+        if (isUnknownInteractionError(err)) {
+          console.warn('[INTERACTION] トークン期限切れのため応答を諦めます（Unknown interaction）');
+          return;
+        }
         await sendErrorEmbed(err, '🚨 Edit Submit Error', interaction.guildId);
         await replyQuietly(interaction, '❌ 保存中にエラーが発生しました。ログを確認してください。');
       }
@@ -133,6 +155,14 @@ function attachInteractionHandler(client) {
     } catch (err) {
       console.error("Command Error:", err);
 
+      // トークン期限切れ（Unknown interaction）はコマンド自体の不具合ではなく、
+      // 応答が間に合わなかっただけ。再送・通知を試みても必ず同じエラーで失敗し、
+      // ログとエラーEmbedを埋めるだけなので、ここで静かに諦める。
+      if (isUnknownInteractionError(err)) {
+        console.warn(`[INTERACTION] トークン期限切れのため応答を諦めます（Unknown interaction） /${commandName}`);
+        return;
+      }
+
       // エラーはそのコマンドが実行されたサーバーにだけ通知する
       await sendErrorEmbed(err, `🚨 Command Execution Error (/${commandName})`, interaction.guildId);
 
@@ -144,6 +174,10 @@ function attachInteractionHandler(client) {
           await interaction.reply({ content: errorMessage, ephemeral: true });
         }
       } catch (followUpError) {
+        if (isUnknownInteractionError(followUpError)) {
+          console.warn(`[INTERACTION] トークン期限切れのため応答を諦めます（Unknown interaction） /${commandName}`);
+          return;
+        }
         console.error("Failed to send error message to user:", followUpError);
       }
     }

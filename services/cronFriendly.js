@@ -30,11 +30,26 @@ function extractWeekday(text) {
   return null;
 }
 
+/**
+ * 「午前」「午後」（12時間制）を24時間制の時に正規化する。
+ * 午前12時＝0時（深夜）、午後12時＝12時（正午）という一般的な慣用に合わせる。
+ */
+function applyMeridiem(hour, meridiem) {
+  if (!meridiem) return hour;
+  if (meridiem === 'am') return hour === 12 ? 0 : hour;
+  return hour === 12 ? 12 : hour + 12; // pm
+}
+
 function extractTime(text) {
+  const meridiemMatch = text.match(/午前|午後|am|pm/i);
+  const meridiem = meridiemMatch
+    ? (meridiemMatch[0] === '午前' || meridiemMatch[0].toLowerCase() === 'am' ? 'am' : 'pm')
+    : null;
+
   let m = text.match(/(\d{1,2})\s*時\s*(\d{1,2})?\s*分?/);
-  if (m) return { hour: Number(m[1]), minute: m[2] !== undefined ? Number(m[2]) : 0 };
+  if (m) return { hour: applyMeridiem(Number(m[1]), meridiem), minute: m[2] !== undefined ? Number(m[2]) : 0 };
   m = text.match(/(\d{1,2}):(\d{2})/);
-  if (m) return { hour: Number(m[1]), minute: Number(m[2]) };
+  if (m) return { hour: applyMeridiem(Number(m[1]), meridiem), minute: Number(m[2]) };
   return null;
 }
 
@@ -51,8 +66,8 @@ const inRange = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 // /set_schedule のエラーメッセージ・オートコンプリートの説明文で使う入力例
 const SHAPE_EXAMPLES = {
   hourly: '`5` または `5分`（毎時5分に実行）',
-  daily: '`7時` `7時30分` `7:30`（その時刻に毎日実行）',
-  weekly: '`日 21時` `月曜9時30分`（毎週その曜日・時刻に実行）',
+  daily: '`7時` `7時30分` `7:30` `午後9時`（その時刻に毎日実行）',
+  weekly: '`日 21時` `月曜9時30分` `日曜午後9時`（毎週その曜日・時刻に実行）',
 };
 
 /**

@@ -82,6 +82,14 @@ async function vc_check(interaction, { guildId }) {
     await interaction.followUp("前回の確認処理がまだ終わっていません。少し待ってからもう一度お試しください（連続実行はメモリ超過の原因になるため制限しています）。");
   } else if (result.skipped === 'no_keywords') {
     await interaction.followUp("監視キーワードが1件も登録されていません。/vc_add で登録してください。");
+  } else if (result.failures && result.failures.length) {
+    // ランキング取得自体が失敗した場合、hits=0 は「本当に0件だった」わけではないため、
+    // 通常の完了メッセージと混同しないよう別扱いで明示する
+    const detail = result.failures.map((f) => `・${f.url}\n  → ${f.message}`).join('\n');
+    await interaction.followUp(
+      `⚠️ ランキングの取得に失敗したページがあります（結果は不完全です）。\n${detail}\n` +
+      `照合できた分: ${result.checked}件 / ヒット ${result.hits}件 / 新規通知 ${result.notified}件`
+    );
   } else {
     await interaction.followUp(
       `確認完了: ${result.checked}件を照合し、ヒット ${result.hits}件 / 新規通知 ${result.notified}件でした。`

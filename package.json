@@ -29,6 +29,7 @@
     "express": "^5.2.1",
     "node-cron": "^4.6.0",
     "puppeteer": "^25.8.0",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "twitter-openapi-typescript": "^0.0.56"
   }
 }

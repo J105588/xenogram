@@ -61,25 +61,31 @@ module.exports = {
 
   // X（旧Twitter）キーワード監視（読み取り専用）
   //
-  // 投稿は一切行わない。twitter-cli（https://github.com/public-clis/twitter-cli）を
-  // 子プロセスとして呼び出し、検索結果に登録キーワードがヒットしたらDiscordに通知する。
-  // twitter-cliは公式APIキーではなくブラウザCookie/セッショントークンで動く非公式ツールのため、
+  // 投稿は一切行わない。twitter-openapi-typescript
+  // （https://github.com/fa0311/twitter-openapi-typescript）経由でX内部のGraphQL APIを
+  // 直接叩き、検索結果に登録キーワードがヒットしたらDiscordに通知する。
+  // 以前は外部CLI（twitter-cli）を子プロセスとして呼び出していたが、Xの新しいbot対策
+  // （x-client-transaction-idヘッダ）に対応できず検索が失敗するようになったため、
+  // このヘッダを自動生成できるライブラリに移行した（2026-08）。
+  //
+  // 公式APIキーではなくブラウザCookie/セッショントークンで動く非公式ライブラリのため、
   // 利用にはあらかじめ以下のセットアップが必要（詳細は .env.example を参照）：
-  //   1. `uv tool install twitter-cli`（または pipx install twitter-cli）でインストール
-  //   2. twitter-cli 側でCookieログイン、またはTWITTER_AUTH_TOKEN/TWITTER_CT0を設定
+  //   1. ブラウザでX(Twitter)にログインし、Cookieから ct0 と auth_token を控える
+  //   2. .env に TWITTER_CT0 / TWITTER_AUTH_TOKEN を設定
   //   3. TWITTER_MONITOR_ENABLED=true にする
   // 上記が未設定の間は機能全体が無効（既定はfalse）になり、他機能には一切影響しない。
   TWITTER_MONITOR: {
     ENABLED: process.env.TWITTER_MONITOR_ENABLED === 'true',
-    // twitter-cli の実行コマンド名またはフルパス
-    CLI_BIN: process.env.TWITTER_CLI_BIN || 'twitter',
+    // ブラウザのCookieから取得するセッション情報（読み取り専用アカウントの利用を推奨）
+    CT0: process.env.TWITTER_CT0 || null,
+    AUTH_TOKEN: process.env.TWITTER_AUTH_TOKEN || null,
     // 実行スケジュール（既定: 毎時10分。ボカコレ監視(毎時5分)と被らないようずらしている）
     CRON: process.env.TWITTER_MONITOR_CRON || '10 * * * *',
     // 通知先。未指定なら通常の通知チャンネルを使う
     CHANNEL_ID: process.env.TWITTER_MONITOR_CHANNEL_ID || process.env.DISCORD_CHANNEL_ID,
     // 1キーワードあたりの検索取得件数
     MAX_RESULTS: Number(process.env.TWITTER_MONITOR_MAX_RESULTS || 20),
-    // CLI呼び出しのタイムアウト(ms)
+    // API呼び出しのタイムアウト(ms)
     FETCH_TIMEOUT_MS: Number(process.env.TWITTER_MONITOR_TIMEOUT_MS || 20000),
   },
 

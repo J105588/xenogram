@@ -148,15 +148,15 @@ async function status(interaction, { guildId }) {
   // 機能自体が config で無効化されている間は、/status にも一切痕跡を出さない
   const twitterFields = [];
   if (config.TWITTER_MONITOR.ENABLED) {
-    const twitterCli = require('../../twitterCli');
-    const cliAvailable = await twitterCli.isCliAvailable();
+    const twitterApi = require('../../twitterApi');
+    const configured = twitterApi.isConfigured();
     const state = status.twitter.active
       ? '稼働中'
       : status.twitter.keywords === 0 ? '未設定（キーワード0件）'
         : !status.twitter.enabled ? '停止中（/x_toggle off）'
           : '停止中（通知先が未設定）';
     twitterFields.push(
-      { name: 'X(Twitter)監視', value: `${state} / キーワード${status.twitter.keywords}件 / twitter-cli: ${cliAvailable ? '検出済み' : '未検出'}`, inline: true },
+      { name: 'X(Twitter)監視', value: `${state} / キーワード${status.twitter.keywords}件 / 認証情報: ${configured ? '設定済み' : '未設定'}`, inline: true },
       { name: 'X(Twitter)監視 最終実行', value: formatLastRun(lastRun.twitterWatch), inline: false }
     );
   }

@@ -6,9 +6,9 @@
  *   node test/vocacolle_dry_run.js artist "投稿者" … アーティスト名の完全一致を判定
  *
  * Discord にもDBにも触れず、スクリーンショットも撮らない。
- * ただし内部APIのランキングIDをキャッシュせず毎回ブラウザで解決するため
- * （本番の scheduler.js は Supabase にキャッシュして再利用する）、
- * 数秒〜十数秒 Chromium が起動する。
+ * buildIdをキャッシュせず毎回HTMLから解決するため
+ * （本番の scheduler.js はDBにキャッシュして再利用する）、少しだけ余計にHTTPを叩く。
+ * ブラウザは使わない。
  */
 process.env.TZ = 'Asia/Tokyo';
 

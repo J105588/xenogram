@@ -86,7 +86,7 @@ async function checkOnePage(guildId, url, keywords, { force, notifySummary, summ
 
   // 継続中のヒットは、新規の有無に関わらず毎回順位変動をチェックする
   if (continuing.length && !force) {
-    await checkRankChanges(continuing, ranking);
+    await checkRankChanges(guildId, continuing, ranking);
   }
 
   let notified = 0;
@@ -279,6 +279,10 @@ async function runVocacolleWatchInner(guildId, { force, bypassToggle, notifySumm
   let totalHits = 0;
   let totalNotified = 0;
   const rankingTitles = [];
+  // 取得失敗したページを記録する。ここを握りつぶすと「本当に0件だった」のか
+  // 「取得自体に失敗して0件のまま返している」のかが呼び出し元から区別できず、
+  // /vc_check が実際にはヒットがあるはずの回でも「ヒット0件」の正常応答に見えてしまう。
+  const failures = [];
 
   for (const url of config.VOCACOLLE.RANKING_URLS) {
     try {
@@ -290,11 +294,18 @@ async function runVocacolleWatchInner(guildId, { force, bypassToggle, notifySumm
     } catch (pageError) {
       // 1ページの取得に失敗しても、他のページのチェックは続行する
       console.error(`[VOCACOLLE] ${url} のチェックに失敗しました:`, pageError);
+      failures.push({ url, message: pageError.message });
     }
   }
 
   markRun('vocacolleWatch');
-  return { checked: totalChecked, hits: totalHits, notified: totalNotified, rankingTitle: rankingTitles.join(' / ') };
+  return {
+    checked: totalChecked,
+    hits: totalHits,
+    notified: totalNotified,
+    rankingTitle: rankingTitles.join(' / '),
+    failures,
+  };
 }
 
 module.exports = { runVocacolleWatch };

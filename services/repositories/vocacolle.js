@@ -224,15 +224,15 @@ async function setVocacolleWatchEnabled(guildId, enabled) {
 }
 
 /**
- * キャッシュ済みの nvapi ランキングIDを取得する
+ * キャッシュ済みの Next.js buildId を取得する
  */
 async function getVocacolleRankingSource(pageId) {
   try {
     const row = db.prepare(`
-      SELECT ranking_id, frontend_id, resolved_at FROM vocacolle_ranking_sources WHERE page_id = ?
+      SELECT build_id, resolved_at FROM vocacolle_ranking_sources WHERE page_id = ?
     `).get(pageId);
     if (!row) return null;
-    return { rankingId: row.ranking_id, frontendId: row.frontend_id, resolvedAt: row.resolved_at };
+    return { buildId: row.build_id, resolvedAt: row.resolved_at };
   } catch (error) {
     console.error("Error getting vocacolle ranking source:", error);
     return null;
@@ -240,14 +240,14 @@ async function getVocacolleRankingSource(pageId) {
 }
 
 /**
- * 解決した nvapi ランキングIDを保存する
+ * 解決した Next.js buildId を保存する
  */
 async function upsertVocacolleRankingSource(pageId, source) {
   try {
     db.prepare(`
-      INSERT INTO vocacolle_ranking_sources (page_id, ranking_id, frontend_id, resolved_at) VALUES (?, ?, ?, ?)
-      ON CONFLICT(page_id) DO UPDATE SET ranking_id = excluded.ranking_id, frontend_id = excluded.frontend_id, resolved_at = excluded.resolved_at
-    `).run(pageId, source.rankingId, source.frontendId, source.resolvedAt);
+      INSERT INTO vocacolle_ranking_sources (page_id, build_id, resolved_at) VALUES (?, ?, ?)
+      ON CONFLICT(page_id) DO UPDATE SET build_id = excluded.build_id, resolved_at = excluded.resolved_at
+    `).run(pageId, source.buildId, source.resolvedAt);
   } catch (error) {
     console.error("Error saving vocacolle ranking source:", error);
   }

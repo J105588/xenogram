@@ -25,6 +25,24 @@ const LAUNCH_ARGS = [
   '--lang=ja-JP',
 ];
 
+/**
+ * 起動したChromiumのOSプロセス優先度を「通常以下」に下げる。
+ * Chromiumのレンダリングは重く、下げないとCPUを奪い合ってNode本体
+ * （Discordゲートウェイの心拍応答など）が遅延し、WS瞬断→再接続時に
+ * 溜まっていたインタラクションが期限切れ（Unknown interaction, 10062）で
+ * 失敗する原因になる。失敗しても撮影自体は続行できるので握りつぶす。
+ */
+function lowerBrowserPriority(browser) {
+  try {
+    const proc = browser.process();
+    if (proc && proc.pid) {
+      require('os').setPriority(proc.pid, require('os').constants.priority.PRIORITY_BELOW_NORMAL);
+    }
+  } catch (err) {
+    console.warn('[BROWSER] Chromiumの優先度変更に失敗しました（続行します）:', err.message);
+  }
+}
+
 async function launchBrowser(options = {}) {
   const opts = {
     headless: true,
@@ -35,7 +53,9 @@ async function launchBrowser(options = {}) {
   if (config.SCREENSHOT.EXECUTABLE_PATH) {
     opts.executablePath = config.SCREENSHOT.EXECUTABLE_PATH;
   }
-  return getPuppeteer().launch(opts);
+  const browser = await getPuppeteer().launch(opts);
+  lowerBrowserPriority(browser);
+  return browser;
 }
 
 /**

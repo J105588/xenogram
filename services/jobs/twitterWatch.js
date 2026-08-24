@@ -1,5 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
-const twitterCli = require('../twitterCli');
+const twitterApi = require('../twitterApi');
 const dbService = require('../database');
 const discordService = require('../discord');
 const utils = require('../../utils');
@@ -9,7 +9,7 @@ const { withSingleFlight } = require('../singleFlight');
 
 /**
  * 【毎時10分に実行・既定は無効】登録キーワードでXを検索し、新規ヒットを通知する。
- * 読み取り専用（twitter-cli の検索コマンドしか呼ばない。投稿・返信等は一切行わない）。
+ * 読み取り専用（検索APIしか呼ばない。投稿・返信等は一切行わない）。
  *
  * @param {object} [options]
  * @param {boolean} [options.bypassToggle] true なら /x_toggle off で無効化中でも実行する（/x_check 用）
@@ -51,12 +51,8 @@ async function runTwitterWatchInner(guildId, { bypassToggle = false } = {}) {
     return { checked: 0, hits: 0, notified: 0, skipped: 'no_keywords' };
   }
 
-  const available = await twitterCli.isCliAvailable();
-  if (!available) {
-    console.warn(
-      `[X] twitter-cli (${config.TWITTER_MONITOR.CLI_BIN}) が見つかりません。` +
-      'セットアップ（uv tool install twitter-cli 等）を確認してください。'
-    );
+  if (!twitterApi.isConfigured()) {
+    console.warn('[X] TWITTER_CT0 / TWITTER_AUTH_TOKEN が未設定です。.envの設定を確認してください。');
     return { checked: 0, hits: 0, notified: 0, skipped: 'cli_unavailable' };
   }
 
@@ -67,7 +63,7 @@ async function runTwitterWatchInner(guildId, { bypassToggle = false } = {}) {
 
   for (const keyword of keywords) {
     try {
-      const tweets = await twitterCli.searchTweets(keyword.query, config.TWITTER_MONITOR.MAX_RESULTS);
+      const tweets = await twitterApi.searchTweets(keyword.query, config.TWITTER_MONITOR.MAX_RESULTS);
 
       for (const tweet of tweets) {
         const already = await dbService.hasTwitterDetection(keyword.id, tweet.id);
@@ -95,7 +91,7 @@ async function runTwitterWatchInner(guildId, { bypassToggle = false } = {}) {
     } catch (keywordError) {
       // 1キーワードの検索に失敗しても、他のキーワードのチェックは続行する。
       // ただし「ヒット0件」と区別が付かなくなるため、失敗件数として別カウントする
-      // （twitter-cli側のAPIエラー等で全滅していても、静かに「0件」に見えてしまう事故を防ぐ）。
+      // （X側のAPIエラー等で全滅していても、静かに「0件」に見えてしまう事故を防ぐ）。
       failedKeywords += 1;
       lastError = keywordError.message;
       console.error(`[X] キーワード "${keyword.query}" の検索に失敗しました:`, keywordError.message);

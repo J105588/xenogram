@@ -257,7 +257,7 @@ const EDITORS = {
       const keywords = dbService.getTwitterKeywords(guildId, true);
       const status = dbService.getGuildFeatureStatus(guildId);
       const stateLine = !config.TWITTER_MONITOR.ENABLED
-        ? '監視状態: **未セットアップ**（TWITTER_MONITOR_ENABLED=false。.env設定とtwitter-cliのセットアップが必要）'
+        ? '監視状態: **未セットアップ**（TWITTER_MONITOR_ENABLED=false。.envにTWITTER_CT0/TWITTER_AUTH_TOKENの設定が必要）'
         : status.twitter.active ? '監視スケジュール: **稼働中**'
           : !status.twitter.enabled ? '監視スケジュール: **停止中**（/x_toggle on で再開）'
             : !status.notifyChannel ? '監視スケジュール: **停止中**（通知先が未設定。/guild_setup で指定してください）'
