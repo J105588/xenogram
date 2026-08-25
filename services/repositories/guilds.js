@@ -9,6 +9,7 @@ const { db } = require('./db');
 
 const CHANNEL_COLUMNS = {
   notify: 'notify_channel_id',
+  video: 'video_channel_id',
   vocacolle: 'vocacolle_channel_id',
   twitter: 'twitter_channel_id',
 };
@@ -54,7 +55,7 @@ function ensureGuild(guildId, name = null) {
 /**
  * 通知先チャンネルを設定する。
  * @param {string} guildId
- * @param {'notify'|'vocacolle'|'twitter'} kind
+ * @param {'notify'|'video'|'vocacolle'|'twitter'} kind
  * @param {string|null} channelId null を渡すと解除（＝その通知を止める）
  */
 function setGuildChannel(guildId, kind, channelId) {
@@ -69,7 +70,7 @@ function setGuildChannel(guildId, kind, channelId) {
 
 /**
  * 用途別の送信先チャンネルIDを解決する。
- * ボカコレ・Xの専用チャンネルが未設定なら通常の通知チャンネルに落とす
+ * 動画監視・ボカコレ・Xの専用チャンネルが未設定なら通常の通知チャンネルに落とす
  * （用途ごとに分けたい鯖だけが設定すればよい形にするため）。
  */
 function resolveChannelId(guildId, kind = 'notify') {
@@ -100,11 +101,12 @@ function adoptLegacyData(guildId) {
   db.prepare(`
     UPDATE guilds SET
       notify_channel_id    = COALESCE(notify_channel_id, ?),
+      video_channel_id     = COALESCE(video_channel_id, ?),
       vocacolle_channel_id = COALESCE(vocacolle_channel_id, ?),
       twitter_channel_id   = COALESCE(twitter_channel_id, ?),
       updated_at = ?
     WHERE guild_id = ?
-  `).run(legacy.notify_channel_id, legacy.vocacolle_channel_id, legacy.twitter_channel_id, new Date().toISOString(), guildId);
+  `).run(legacy.notify_channel_id, legacy.video_channel_id, legacy.vocacolle_channel_id, legacy.twitter_channel_id, new Date().toISOString(), guildId);
 
   db.prepare("DELETE FROM guilds WHERE guild_id = 'legacy'").run();
   return { ok: true, moved };
@@ -124,6 +126,9 @@ function getGuildFeatureStatus(guildId) {
   const count = (sql) => db.prepare(sql).get(guildId).c;
 
   const notifyChannel = resolveChannelId(guildId, 'notify');
+  const videoChannel = resolveChannelId(guildId, 'video');
+  const vocaChannel = resolveChannelId(guildId, 'vocacolle');
+  const xChannel = resolveChannelId(guildId, 'twitter');
   const userCount = count('SELECT COUNT(*) c FROM nico_users WHERE guild_id = ?');
   const videoCount = count('SELECT COUNT(*) c FROM guild_videos WHERE guild_id = ?');
   const vocaCount = count('SELECT COUNT(*) c FROM vocacolle_keywords WHERE guild_id = ? AND enabled = 1');
@@ -142,20 +147,23 @@ function getGuildFeatureStatus(guildId) {
     // 通知先すら決まっていない＝まだセットアップされていないサーバー
     configured: !!notifyChannel,
     video: {
+      channel: videoChannel,
       users: userCount,
       videos: videoCount,
       // 監視対象ユーザーも個別登録動画も無ければ、追う相手がいない
-      active: !!notifyChannel && (userCount > 0 || videoCount > 0),
+      active: !!videoChannel && (userCount > 0 || videoCount > 0),
     },
     vocacolle: {
+      channel: vocaChannel,
       keywords: vocaCount,
       enabled: vocaEnabled,
-      active: !!notifyChannel && vocaEnabled && vocaCount > 0,
+      active: !!vocaChannel && vocaEnabled && vocaCount > 0,
     },
     twitter: {
+      channel: xChannel,
       keywords: xCount,
       enabled: xEnabled,
-      active: !!notifyChannel && xEnabled && xCount > 0,
+      active: !!xChannel && xEnabled && xCount > 0,
     },
   };
 }

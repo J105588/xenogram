@@ -26,7 +26,7 @@ async function sendWeeklyReport(guildId) {
 async function sendWeeklyReportInner(guildId) {
   console.log(`Running weekly report... (guild: ${guildId})`);
 
-  if (!dbService.resolveChannelId(guildId, 'notify')) {
+  if (!dbService.resolveChannelId(guildId, 'video')) {
     console.warn(`週次レポート: 通知先チャンネルが未設定のためスキップします (guild: ${guildId})`);
     return { skipped: 'no_channel' };
   }
@@ -74,7 +74,8 @@ async function sendWeeklyReportInner(guildId) {
   try {
     await discordService.sendNotification(
       guildId,
-      buildSummaryEmbed(rows, { title: '週次まとめレポート', periodLabel: '今週' })
+      buildSummaryEmbed(rows, { title: '週次まとめレポート', periodLabel: '今週' }),
+      'video'
     );
   } catch (summaryError) {
     console.error('❌ Failed to send weekly summary embed:', summaryError);
@@ -97,7 +98,7 @@ async function sendWeeklyReportInner(guildId) {
         titlePrefix: '週報',
         milestoneStep,
       });
-      await discordService.sendNotification(guildId, embed);
+      await discordService.sendNotification(guildId, embed, 'video');
     } catch (itemError) {
       console.error(`❌ Failed to send weekly report for ${row.video.id}:`, itemError);
     }

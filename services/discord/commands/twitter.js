@@ -70,12 +70,12 @@ async function x_check(interaction, { guildId }) {
     );
   } else if (result.failedKeywords > 0) {
     await interaction.followUp(
-      `⚠️ 確認完了: ${result.checked}件中 **${result.failedKeywords}件の検索が失敗**しました（新規ヒット ${result.hits}件 / 通知 ${result.notified}件）。\n` +
+      `⚠️ 確認完了: ${result.checked}件中 **${result.failedKeywords}件の検索が失敗**しました（ヒット ${result.hits}件 / 新規通知 ${result.notified}件）。\n` +
       `直近のエラー: \`${result.lastError}\`\n` +
       'Cookie（ct0/auth_token）の期限切れ、またはXの仕様変更への未対応の可能性があります。詳細はサーバーログをご確認ください。'
     );
   } else {
-    await interaction.followUp(`確認完了: ${result.checked}件のキーワードを検索し、新規ヒット ${result.hits}件 / 通知 ${result.notified}件でした。`);
+    await interaction.followUp(`確認完了: ${result.checked}件のキーワードを検索し、ヒット ${result.hits}件 / 新規通知 ${result.notified}件でした。`);
   }
 }
 

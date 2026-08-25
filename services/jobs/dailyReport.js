@@ -82,7 +82,7 @@ async function mapWithConcurrency(items, limit, worker) {
 async function reportEachVideoStatsInner(guildId) {
   console.log(`Running daily reportEachVideoStats... (guild: ${guildId})`);
 
-  if (!dbService.resolveChannelId(guildId, 'notify')) {
+  if (!dbService.resolveChannelId(guildId, 'video')) {
     console.warn(`デイリーレポート: 通知先チャンネルが未設定のためスキップします (guild: ${guildId})`);
     return { skipped: 'no_channel' };
   }
@@ -106,7 +106,7 @@ async function reportEachVideoStatsInner(guildId) {
   }
 
   try {
-    await discordService.sendNotification(guildId, buildSummaryEmbed(rows, { title: 'デイリーレポート', periodLabel: '本日' }));
+    await discordService.sendNotification(guildId, buildSummaryEmbed(rows, { title: 'デイリーレポート', periodLabel: '本日' }), 'video');
   } catch (summaryError) {
     // サマリーが落ちても動画ごとの詳細は届けたいので、ここでは止めない
     console.error('❌ Failed to send daily summary embed:', summaryError);
@@ -128,7 +128,7 @@ async function reportEachVideoStatsInner(guildId) {
         titlePrefix: 'Analytics',
         milestoneStep,
       });
-      await discordService.sendNotification(guildId, embed);
+      await discordService.sendNotification(guildId, embed, 'video');
     } catch (itemError) {
       console.error(`❌ Failed to generate/send report for video ${row.video.id}:`, itemError);
       // 1本の動画で失敗しても、他の動画のレポート処理を止めずに次へ進む

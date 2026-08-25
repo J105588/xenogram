@@ -59,7 +59,8 @@ async function checkSpike(guildId, video, previousState, newViews) {
       .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
       .setThumbnail(video.thumbnail_url)
       .setFooter({ text: config.FOOTER_TEXT })
-      .setTimestamp()
+      .setTimestamp(),
+    'video'
   );
 }
 
@@ -84,7 +85,7 @@ async function updateVideoListInner(guildId) {
   if (!status.video.active) {
     console.log(
       `[UPDATE] 未設定のためスキップします (guild: ${guildId}) ` +
-      `— 通知先:${status.notifyChannel ? 'あり' : 'なし'} / 監視ユーザー:${status.video.users}件 / 個別登録動画:${status.video.videos}件`
+      `— 通知先:${status.video.channel ? 'あり' : 'なし'} / 監視ユーザー:${status.video.users}件 / 個別登録動画:${status.video.videos}件`
     );
     return { skipped: 'not_configured' };
   }
@@ -126,7 +127,7 @@ async function updateVideoListInner(guildId) {
           .setFooter({ text: config.FOOTER_TEXT })
           .setTimestamp();
 
-        await discordService.sendNotification(guildId, embed);
+        await discordService.sendNotification(guildId, embed, 'video');
       }
     }
   }
@@ -167,7 +168,8 @@ async function updateVideoListInner(guildId) {
                 .setDescription(`**${video.title}** が **${crossed.toLocaleString()}** ${stat.name}を突破しました！`)
                 .setColor(stat.color)
                 .setURL(`https://www.nicovideo.jp/watch/${video.id}`)
-                .setThumbnail(apiData.thumbnail)
+                .setThumbnail(apiData.thumbnail),
+              'video'
             );
           }
         }

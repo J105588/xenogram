@@ -13,7 +13,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
  *
  * @param {string} guildId 送信先サーバーID
  * @param {string|EmbedBuilder} embedOrText
- * @param {'notify'|'vocacolle'|'twitter'} [kind] 用途別チャンネルの使い分け
+ * @param {'notify'|'video'|'vocacolle'|'twitter'} [kind] 用途別チャンネルの使い分け
  */
 async function sendNotification(guildId, embedOrText, kind = 'notify') {
   const dbService = require('../database');

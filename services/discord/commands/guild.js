@@ -13,7 +13,8 @@ const dbService = require('../../database');
  * ===================================================================== */
 
 const KIND_LABELS = {
-  notify: '通常の通知（レポート・新着・キリ番・急上昇）',
+  notify: '通常の通知（Bot起動/停止・エラー等）',
+  video: '動画監視（新着・キリ番・急上昇・デイリー/週次レポート）',
   vocacolle: 'ボカコレ/ランキング監視',
   twitter: 'X(Twitter)監視',
 };
@@ -62,6 +63,7 @@ async function guild_setup(interaction, { guildId }) {
     .setDescription(`${KIND_LABELS[kind]} → ${channel}`)
     .addFields(
       { name: '通常の通知', value: guild.notify_channel_id ? `<#${guild.notify_channel_id}>` : '**未設定**', inline: false },
+      { name: '動画監視', value: show(guild.video_channel_id), inline: true },
       { name: 'ボカコレ監視', value: show(guild.vocacolle_channel_id), inline: true },
       { name: 'X(Twitter)監視', value: show(guild.twitter_channel_id), inline: true }
     )

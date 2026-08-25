@@ -168,7 +168,8 @@ const commands = [
       {
         name: 'kind', type: 3, description: '設定する通知の種類（省略時は通常の通知）', required: false,
         choices: [
-          { name: '通常の通知（レポート・新着・キリ番）', value: 'notify' },
+          { name: '通常の通知（Bot起動/停止・エラー等）', value: 'notify' },
+          { name: '動画監視（新着・キリ番・急上昇・レポート）', value: 'video' },
           { name: 'ボカコレ/ランキング監視', value: 'vocacolle' },
           { name: 'X(Twitter)監視', value: 'twitter' }
         ]

@@ -175,7 +175,7 @@ const EDITORS = {
       const watchStateLine = status.vocacolle.active
         ? '監視スケジュール: **稼働中**'
         : !status.vocacolle.enabled ? '監視スケジュール: **停止中**（/vc_toggle on で再開）'
-          : !status.notifyChannel ? '監視スケジュール: **停止中**（通知先が未設定。/guild_setup で指定してください）'
+          : !status.vocacolle.channel ? '監視スケジュール: **停止中**（通知先が未設定。/guild_setup で指定してください）'
             : '監視スケジュール: **停止中**（有効なキーワードがありません）';
 
       if (!keywords.length) {
@@ -260,7 +260,7 @@ const EDITORS = {
         ? '監視状態: **未セットアップ**（TWITTER_MONITOR_ENABLED=false。.envにTWITTER_CT0/TWITTER_AUTH_TOKENの設定が必要）'
         : status.twitter.active ? '監視スケジュール: **稼働中**'
           : !status.twitter.enabled ? '監視スケジュール: **停止中**（/x_toggle on で再開）'
-            : !status.notifyChannel ? '監視スケジュール: **停止中**（通知先が未設定。/guild_setup で指定してください）'
+            : !status.twitter.channel ? '監視スケジュール: **停止中**（通知先が未設定。/guild_setup で指定してください）'
               : '監視スケジュール: **停止中**（有効なキーワードがありません）';
 
       if (!keywords.length) {

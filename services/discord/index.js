@@ -45,6 +45,30 @@ function syncJoinedGuilds() {
   console.log(`参加中のサーバー ${client.guilds.cache.size}件 を登録しました。`);
 }
 
+// Gatewayの切断・再接続はこれまで一切ログに残らず、"応答しない"（コマンドが
+// Unknown interaction=10062で失敗）の原因調査ができなかった。切断中に届いた
+// インタラクションは、再接続（RESUME）後にまとめて配信されるが、その時点では
+// 3秒の応答期限をとうに過ぎているため必ず失敗する。これを切り分けられるよう
+// 接続状態の変化を記録する。
+client.on('shardDisconnect', (event, shardId) => {
+  console.warn(`[GATEWAY] shard ${shardId} が切断されました (code: ${event.code})`);
+});
+client.on('shardReconnecting', (shardId) => {
+  console.warn(`[GATEWAY] shard ${shardId} が再接続を試みています…`);
+});
+client.on('shardResume', (shardId, replayedEvents) => {
+  console.warn(`[GATEWAY] shard ${shardId} が再接続しました（見逃したイベント${replayedEvents}件を再配信）`);
+});
+client.on('shardError', (error, shardId) => {
+  console.error(`[GATEWAY] shard ${shardId} でエラーが発生しました:`, error);
+});
+client.on('error', (error) => {
+  console.error('[GATEWAY] クライアントエラー:', error);
+});
+client.on('warn', (info) => {
+  console.warn('[GATEWAY]', info);
+});
+
 // discord.js v15で 'ready' が廃止され 'clientReady' に一本化される予定のため、先行して新名称を使う
 client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}!`);

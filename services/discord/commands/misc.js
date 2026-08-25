@@ -165,10 +165,14 @@ async function status(interaction, { guildId }) {
   const notifyChannelLine = status.notifyChannel
     ? `<#${status.notifyChannel}>`
     : '**未設定**（/guild_setup で指定するまで、このサーバーには通知が届きません）';
+  // 動画監視専用チャンネル未設定時は通常の通知チャンネルにフォールバックする
+  const videoChannelLine = status.video.channel
+    ? `<#${status.video.channel}>`
+    : '未設定（通常の通知チャンネルを使用）';
 
   const videoWatchLine = status.video.active
     ? `稼働中（投稿者${status.video.users}人 / 個別登録${status.video.videos}本）`
-    : status.notifyChannel
+    : status.video.channel
       ? '未設定（/user_add または /add で監視対象を登録してください）'
       : '未設定（通知先も監視対象も未登録）';
 
@@ -195,6 +199,7 @@ async function status(interaction, { guildId }) {
       { name: 'ボカコレキーワード', value: `${status.vocacolle.keywords}件`, inline: true },
       { name: 'ボカコレ監視', value: vocacolleLine, inline: true },
       { name: 'このサーバーの通知先', value: notifyChannelLine, inline: false },
+      { name: '動画監視の通知先', value: videoChannelLine, inline: false },
       { name: '動画の監視', value: videoWatchLine, inline: false },
       ...twitterFields,
       { name: '毎時 新着/キリ番チェック 最終実行', value: formatLastRun(lastRun.updateVideoList), inline: false },

@@ -14,6 +14,8 @@ const { withSingleFlight } = require('../singleFlight');
  * @param {object} [options]
  * @param {boolean} [options.bypassToggle] true なら /x_toggle off で無効化中でも実行する（/x_check 用）
  * @returns {Promise<{checked: number, hits: number, notified: number, skipped?: string}>}
+ *   hits: 検索にヒットした件数（既に通知済みのツイートを含む）
+ *   notified: そのうち未通知だった＝実際にDiscordへ送った件数
  */
 async function runTwitterWatch(guildId, options = {}) {
   const outcome = await withSingleFlight(`twitterWatch:${guildId}`, () => runTwitterWatchInner(guildId, options));
@@ -66,10 +68,13 @@ async function runTwitterWatchInner(guildId, { bypassToggle = false } = {}) {
       const tweets = await twitterApi.searchTweets(keyword.query, config.TWITTER_MONITOR.MAX_RESULTS);
 
       for (const tweet of tweets) {
+        // 既に通知済みでも「検索にヒットした」事実としてカウントする
+        // （/x_check で「本当に0件だったのか、既知のツイートしか無かったのか」を
+        //  区別できるようにするため。ボカコレ側の hits/notified と同じ考え方）
+        totalHits += 1;
+
         const already = await dbService.hasTwitterDetection(keyword.id, tweet.id);
         if (already) continue;
-
-        totalHits += 1;
 
         const embed = new EmbedBuilder()
           .setTitle(`X: "${utils.truncate(keyword.query, 80)}" にヒット`)
@@ -98,7 +103,7 @@ async function runTwitterWatchInner(guildId, { bypassToggle = false } = {}) {
     }
   }
 
-  console.log(`[X] ${keywords.length}件のキーワードを検索し、新規ヒット${totalHits}件・通知${totalNotified}件・失敗${failedKeywords}件`);
+  console.log(`[X] ${keywords.length}件のキーワードを検索し、ヒット${totalHits}件・新規通知${totalNotified}件・失敗${failedKeywords}件`);
   markRun('twitterWatch');
   return { checked: keywords.length, hits: totalHits, notified: totalNotified, failedKeywords, lastError };
 }
