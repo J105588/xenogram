@@ -117,7 +117,7 @@ async function fetchNicoData(id) {
     if (json.meta.status !== 200 || !json.data) return null;
 
     const video = json.data.video;
-    const tags = json.data.tag.items.map(t => t.name).slice(0, 3).join(", ");
+    const tags = json.data.tag.items.map(t => t.name).join(", ");
 
     return {
       view: video.count.view || 0,
