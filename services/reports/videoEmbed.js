@@ -44,9 +44,12 @@ function buildVideoStatsEmbed({
   const diff = previous ? utils.calculateDiff(current, previous) : null;
 
   const table = utils.buildStatsTable(current, diff, diffHeader);
-  const description = diff
+  let description = diff
     ? table
     : `${table}\n※ 比較できる過去の記録がまだありません（次回のレポートから差分が出ます）`;
+  if (current.likeStale) {
+    description += '\n※ いいねは最新値を取得できなかったため、前回の記録値を表示しています';
+  }
 
   const embed = new EmbedBuilder()
     .setTitle(utils.truncate(`${titlePrefix}: ${title}`, 256))
@@ -108,12 +111,18 @@ function buildSummaryEmbed(rows, options = {}) {
   const totalLikeGrowth = rows.reduce((sum, r) => sum + (r.diff.like || 0), 0);
   const ranked = [...rows].sort((a, b) => (b.diff.view || 0) - (a.diff.view || 0));
 
+  const staleCount = rows.filter((r) => r.current.likeStale).length;
+  const staleNote = staleCount
+    ? `\n※ うち${staleCount}本はいいねの最新値を取得できず、前回の記録値のままです`
+    : '';
+
   const embed = new EmbedBuilder()
     .setTitle(`${title}（${new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}）`)
     .setColor(parseInt(config.CHART_COLOR, 16))
     .setDescription(
       `監視中 **${rows.length}本**\n` +
-      `${periodLabel}の合計: 再生 **${utils.formatDiff(totalViewGrowth)}** ・ いいね **${utils.formatDiff(totalLikeGrowth)}**`
+      `${periodLabel}の合計: 再生 **${utils.formatDiff(totalViewGrowth)}** ・ いいね **${utils.formatDiff(totalLikeGrowth)}**` +
+      staleNote
     )
     .setFooter({ text: config.FOOTER_TEXT })
     .setTimestamp();

@@ -4,7 +4,7 @@ const dbService = require('../database');
 const {
   client, startDiscordBot, sendNotification, broadcastNotification, sendEmbedWithFiles, sendErrorEmbed,
 } = require('./client');
-const { registerCommands } = require('./definitions');
+const { registerCommands, registerCommandsForGuild } = require('./definitions');
 const { attachInteractionHandler } = require('./router');
 
 /**
@@ -79,6 +79,12 @@ client.once('clientReady', async () => {
   client.user.setActivity(`${totalVideos}本の動画を監視中`, { type: 3 });
 
   await registerCommands();
+  // DISCORD_GUILD_ID設定時、上のregisterCommands()は開発用サーバーにしか
+  // コマンドを登録しない。それ以外の参加済みサーバーにも個別に登録する
+  // （新規参加時はguildCreateハンドラ側で行うが、起動前から参加済みの分はここで補う）。
+  for (const guildId of client.guilds.cache.keys()) {
+    await registerCommandsForGuild(guildId);
+  }
   await sendStartupNotice();
 
   // 起動後にスケジューラを組み直す（鯖ごとのcronを張るために、
@@ -87,10 +93,13 @@ client.once('clientReady', async () => {
 });
 
 // 新しくサーバーに追加されたら即座に登録する（コマンド実行を待たずに定期ジョブの対象にする）
-client.on('guildCreate', (guild) => {
+client.on('guildCreate', async (guild) => {
   dbService.ensureGuild(guild.id, guild.name);
   console.log(`新しいサーバーに参加しました: ${guild.name} (${guild.id})`);
   require('../scheduler').scheduleGuild(guild.id);
+  // DISCORD_GUILD_ID設定時、起動時の登録は開発用サーバーにしか及ばないため、
+  // このサーバーにもスラッシュコマンドを個別に登録する
+  await registerCommandsForGuild(guild.id);
 });
 
 // サーバーから外されたら、そのサーバーのcronを止める（データは消さない＝再参加で復帰できる）

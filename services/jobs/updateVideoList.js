@@ -107,9 +107,12 @@ async function updateVideoListInner(guildId) {
     const exists = await dbService.hasVideo(guildId, videoId);
     if (!exists) {
       console.log(`New video detected: ${videoId} (guild: ${guildId})`);
-      // 詳細データを取得（タグ情報は一括APIに無いため、新着1件だけは個別APIで取る）
-      const apiData = await niconico.fetchNicoData(videoId);
+      // タグ情報は一括APIに無いため、新着1件だけはgetthumbinfo（視聴カウントを
+      // 増やさない安全なAPI。niconico.js の fetchVideoThumbInfo 参照）で補う。
+      // いいね数はgetthumbinfoに無いため、既に安全に取得済みの一括データの値を使う。
+      const apiData = await niconico.fetchVideoThumbInfo(videoId);
       if (apiData) {
+        apiData.like = item.like;
         // 1. 動画マスター情報 ＋ この鯖の監視リストへの追加
         await dbService.addVideo(guildId, videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
         // 2. 初回の初期統計データの登録（グローバル共有）
@@ -139,11 +142,25 @@ async function updateVideoListInner(guildId) {
   for (const video of videos) {
     try {
       // 監視対象ユーザー自身の動画なら一括取得済みのデータを使い、
-      // /add で追加された他ユーザーの動画（一括データに無い）だけ個別APIにフォールバックする
+      // /add で追加された他ユーザーの動画（一括データに無い）だけ個別APIにフォールバックする。
+      // フォールバック先はgetthumbinfo（視聴カウントを増やさない安全なAPI。niconico.js
+      // の fetchVideoThumbInfo 参照）。いいね数だけはこのAPIに無いため、投稿者IDが
+      // 分かれば resolveLike() で投稿者の一覧APIから補い、それも無理なら直近の記録値を
+      // 引き継ぐ（このフォールバックは毎時実行されるため、視聴カウントを増やすAPIを使うと
+      // 監視している動画の再生数が際限なく水増しされてしまう）。
       const bulkData = bulkById.get(video.id);
-      const apiData = bulkData
-        ? { view: bulkData.view, comment: bulkData.comment, mylist: bulkData.mylist, like: bulkData.like, thumbnail: bulkData.thumbnail }
-        : await niconico.fetchNicoData(video.id);
+      let apiData;
+      if (bulkData) {
+        apiData = { view: bulkData.view, comment: bulkData.comment, mylist: bulkData.mylist, like: bulkData.like, thumbnail: bulkData.thumbnail };
+      } else {
+        apiData = await niconico.fetchVideoThumbInfo(video.id);
+        if (apiData) {
+          const previousLikes = (await dbService.getLatestStats(video.id))?.likes ?? 0;
+          const resolved = await niconico.resolveLike(video.id, apiData.userId, previousLikes);
+          apiData.like = resolved.like;
+          apiData.likeStale = resolved.stale;
+        }
+      }
       if (!apiData) continue;
 
       // 判定基準は「この鯖が前回チェックした時点の値」。video_stats は他の鯖の

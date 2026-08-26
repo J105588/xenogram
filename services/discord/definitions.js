@@ -256,4 +256,30 @@ async function registerCommands() {
   }
 }
 
-module.exports = { commands, registerCommands };
+/**
+ * DISCORD_GUILD_ID（開発用サーバーへの即時反映）を設定している環境で、
+ * それ以外のサーバーにBotが新しく参加したときに呼ぶ。
+ *
+ * registerCommands() は GUILD_ID 設定時、そのサーバーにしかコマンドを
+ * 登録しない（グローバル登録は反映に最大1時間かかるため、開発用に即時反映
+ * できるガイルドコマンドを使っている）。そのままだと、GUILD_ID 以外の
+ * サーバーにBotを入れてもスラッシュコマンドが一切表示されず、
+ * マルチテナント対応（guild_setup 等）が実質使えない状態になる。
+ * 参加のたびにそのサーバー個別へガイルドコマンドとして登録することで、
+ * 即時反映の利点を保ったまま全サーバーで使えるようにする。
+ */
+async function registerCommandsForGuild(guildId) {
+  if (!config.DISCORD.TOKEN || !config.DISCORD.CLIENT_ID) return;
+  if (!config.DISCORD.GUILD_ID) return; // グローバル登録時は元から全サーバーで使えるので不要
+  if (guildId === config.DISCORD.GUILD_ID) return; // 起動時に登録済み
+
+  const rest = new REST({ version: '10' }).setToken(config.DISCORD.TOKEN);
+  try {
+    await rest.put(Routes.applicationGuildCommands(config.DISCORD.CLIENT_ID, guildId), { body: commands });
+    console.log(`[COMMANDS] サーバー ${guildId} にスラッシュコマンドを登録しました。`);
+  } catch (error) {
+    console.error(`[COMMANDS] サーバー ${guildId} へのコマンド登録に失敗しました:`, error);
+  }
+}
+
+module.exports = { commands, registerCommands, registerCommandsForGuild };

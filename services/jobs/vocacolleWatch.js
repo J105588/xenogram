@@ -237,15 +237,17 @@ async function checkOnePage(guildId, url, keywords, { force, notifySummary, summ
 async function runVocacolleWatch(guildId, options = {}) {
   const { force = false, bypassToggle = false, notifySummary = false, summaryScreenshot = true } = options;
 
-  // 同時に複数のChromiumが立ち上がると無駄にメモリを食い、
-  // ランキングページへの同時アクセスも増えるため、常に1本だけ走らせる。
-  // Chromiumはプロセス全体で共有する資源なので、ロックのキーは鯖で分けず
-  // Bot全体で1本にする（鯖ごとに並走させるとメモリを一気に食う）。
-  const outcome = await withSingleFlight('vocacolleWatch', () =>
+  // ロックは他ジョブ（updateVideoList等）と同じく鯖ごとに分ける。
+  // 以前はBot全体で1本のロックキーだったため、複数の鯖が同じスケジュール
+  // （既定は全鯖とも毎時5分）でこのジョブを持つと、先に実行を掴んだ鯖以外は
+  // 「実行中なのでスキップ」判定になり、その鯖のボカコレ監視だけ通知が
+  // 定期的に飛ばなくなる不具合があった（Chromiumはpendingヒットがある時だけ
+  // 起動するため、同時起動は稀なケースに限られる）。
+  const outcome = await withSingleFlight(`vocacolleWatch:${guildId}`, () =>
     runVocacolleWatchInner(guildId, { force, bypassToggle, notifySummary, summaryScreenshot })
   );
   if (!outcome.ok) {
-    console.warn("[VOCACOLLE] 前回の実行がまだ完了していないため、今回はスキップします");
+    console.warn(`[VOCACOLLE] 前回の実行がまだ完了していないため、今回はスキップします (guild: ${guildId})`);
     return { checked: 0, hits: 0, notified: 0, rankingTitle: '', skipped: 'already_running' };
   }
   return outcome.result;

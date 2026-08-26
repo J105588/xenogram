@@ -5,6 +5,16 @@ const HIGHLIGHT_COLOR = '#3498db';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// vocacolleWatchのロックは鯖ごとに分かれているため、複数の鯖のチェックが
+// 同時にヒットするとここへ同時に呼び出しが来うる。Chromiumは重いので、
+// プロセス全体としては常に1本ずつ順番に起動する（キューイング）。
+let browserQueueTail = Promise.resolve();
+function runExclusive(fn) {
+  const run = browserQueueTail.then(fn);
+  browserQueueTail = run.catch(() => {});
+  return run;
+}
+
 /**
  * 同意ダイアログ等が出ていれば閉じる（出ていなければ何もしない）
  */
@@ -37,7 +47,13 @@ function locateAndHighlight(page, watchId, highlightColor) {
         el.removeAttribute('data-xenogram-highlight');
       });
 
-      const anchor = [...document.querySelectorAll('a[href]')].find((a) => a.href.includes(targetId));
+      // includes()による部分一致だと、一方のIDがもう一方の前方一致になる場合
+      // （例: sm123456 と sm1234567）に誤ったカードを強調してしまうため、
+      // /watch/ 直後のIDセグメントを取り出して完全一致で比較する。
+      const anchor = [...document.querySelectorAll('a[href]')].find((a) => {
+        const match = a.href.match(/\/watch\/([^/?#]+)/);
+        return !!match && match[1] === targetId;
+      });
       if (!anchor) return null;
 
       // リンクから親をたどり、「このカード1枚だけ」を包む要素を探す。
@@ -97,6 +113,12 @@ async function captureRankingEntries({ url, watchIds = [] }) {
   }
   if (!watchIds.length) return results;
 
+  await runExclusive(() => captureWithBrowser({ url, watchIds, results }));
+
+  return results;
+}
+
+async function captureWithBrowser({ url, watchIds, results }) {
   let browser = null;
   try {
     browser = await launchBrowser();
@@ -147,8 +169,6 @@ async function captureRankingEntries({ url, watchIds = [] }) {
   } finally {
     await closeBrowserSafely(browser);
   }
-
-  return results;
 }
 
 module.exports = { captureRankingEntries };

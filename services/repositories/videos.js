@@ -53,7 +53,7 @@ async function addVideo(guildId, videoId, title, tags, thumbnailUrl, publishedAt
       .run(guildId, videoId, now);
     return true;
   } catch (error) {
-    console.error("Error adding video:", error);
+    console.error(`Error adding video (videoId=${videoId}, publishedAt=${publishedAt}):`, error);
     return false;
   }
 }
@@ -113,6 +113,10 @@ async function updateVideoInfo(videoId, tags, thumbnailUrl) {
 async function removeVideo(guildId, videoId) {
   try {
     const info = db.prepare('DELETE FROM guild_videos WHERE guild_id = ? AND video_id = ?').run(guildId, videoId);
+    // 通知判定の基準値（guild_video_notify_state）も一緒に消す。残したままだと、
+    // 監視を外してから再登録したときに古い（低い）基準値が復活し、実際には
+    // 増えていないのに「急上昇」「キリ番達成」の誤通知が飛ぶ原因になる。
+    db.prepare('DELETE FROM guild_video_notify_state WHERE guild_id = ? AND video_id = ?').run(guildId, videoId);
     return info.changes > 0;
   } catch (error) {
     console.error("Error removing video:", error);

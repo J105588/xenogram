@@ -37,9 +37,14 @@ async function addVocacolleKeyword({ guildId, keyword, target = 'title', pageId 
     const data = db.prepare('SELECT * FROM vocacolle_keywords WHERE id = ?').get(info.lastInsertRowid);
     return { data: normalizeKeywordRow(data), error: null };
   } catch (error) {
+    // 重複登録はユーザー操作として起こりうる正常系なので、他の repository と同様に
+    // エラーログは出さない（毎回の重複試行がエラーとしてログに積み上がるのを防ぐ）
+    if (isUniqueConstraintError(error)) {
+      // Supabase時代の error.code === '23505'（重複）と同じ判定ができるよう code を付与する
+      error.code = '23505';
+      return { data: null, error };
+    }
     console.error("Error adding vocacolle keyword:", error);
-    // Supabase時代の error.code === '23505'（重複）と同じ判定ができるよう code を付与する
-    if (isUniqueConstraintError(error)) error.code = '23505';
     return { data: null, error };
   }
 }

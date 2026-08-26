@@ -32,11 +32,20 @@ async function reportEachVideoStats(guildId) {
  * の順序を崩さないこと（記録を先にすると前日比が常に0になる）。
  */
 async function collectVideoStats(guildId, video) {
-  const apiData = await niconico.fetchNicoData(video.id);
+  const apiData = await niconico.fetchVideoThumbInfo(video.id);
   if (!apiData) {
     console.warn(`⚠️ Skipping report for ${video.id}: Failed to fetch Niconico data.`);
     return null;
   }
+
+  // getthumbinfoには「いいね」数が無い（視聴カウントを増やさない代わりのトレードオフ。
+  // niconico.js の fetchVideoThumbInfo 参照）ため、投稿者IDが分かれば resolveLike() で
+  // 投稿者の一覧APIから補う。それも無理なら直近の記録値を引き継ぎ、likeStale を立てて
+  // レポートEmbed側に「更新できなかった」ことを伝える。
+  const previousLikes = (await dbService.getLatestStats(video.id))?.likes ?? 0;
+  const resolved = await niconico.resolveLike(video.id, apiData.userId, previousLikes);
+  apiData.like = resolved.like;
+  apiData.likeStale = resolved.stale;
 
   const previous = await dbService.getYesterdayStats(video.id);
   const diff = utils.calculateDiff(apiData, previous);

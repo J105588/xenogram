@@ -90,7 +90,7 @@ function adoptLegacyData(guildId) {
 
   ensureGuild(guildId);
   const moved = {};
-  const tables = ['guild_videos', 'vocacolle_keywords', 'twitter_keywords', 'nico_users', 'app_settings'];
+  const tables = ['guild_videos', 'guild_video_notify_state', 'vocacolle_keywords', 'twitter_keywords', 'nico_users', 'app_settings'];
 
   for (const table of tables) {
     // 移動先に同じ主キーの行が既にある場合は移せないので、衝突しないものだけ動かす

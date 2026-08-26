@@ -48,16 +48,18 @@ async function set_spike(interaction, { guildId }) {
   const threshold = interaction.options.getInteger('threshold');
   const cooldownHours = interaction.options.getInteger('cooldown_hours');
 
+  // 両方を検証してから書き込む（thresholdを書き込んだ後にcooldown_hoursが不正で
+  // 弾かれると、失敗表示なのにthresholdだけ更新される中途半端な状態になるため）
   if (!Number.isInteger(threshold) || threshold <= 0) {
     return await interaction.editReply('threshold は1以上の整数を指定してください。');
   }
-  dbService.setSetting(guildId, 'spike_view_threshold_per_hour', threshold);
+  if (cooldownHours !== null && (!Number.isInteger(cooldownHours) || cooldownHours <= 0)) {
+    return await interaction.editReply('cooldown_hours は1以上の整数を指定してください。');
+  }
 
+  dbService.setSetting(guildId, 'spike_view_threshold_per_hour', threshold);
   let msg = `✅ 急上昇のしきい値を **1時間あたり${threshold}再生** に変更しました。`;
   if (cooldownHours !== null) {
-    if (!Number.isInteger(cooldownHours) || cooldownHours <= 0) {
-      return await interaction.editReply('cooldown_hours は1以上の整数を指定してください。');
-    }
     dbService.setSetting(guildId, 'spike_cooldown_hours', cooldownHours);
     msg += `\nクールダウンを **${cooldownHours}時間** に変更しました。`;
   }

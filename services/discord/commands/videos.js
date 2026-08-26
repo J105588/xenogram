@@ -1,13 +1,25 @@
 const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { fetchNicoData } = require('../../niconico');
+const { fetchVideoThumbInfo, resolveLike } = require('../../niconico');
 const dbService = require('../../database');
 const utils = require('../../../utils');
 const { buildVideoStatsEmbed } = require('../../reports/videoEmbed');
 
+// getthumbinfo（視聴カウントを増やさない安全なAPI）には「いいね」数が無いため、
+// resolveLike() で投稿者の一覧APIから補う。補えなかった場合は直近の記録値を
+// 引き継ぎ、apiData.likeStale を立てて呼び出し側（Embed）に伝える。
+async function withResolvedLike(videoId, apiData) {
+  const previousLikes = (await dbService.getLatestStats(videoId))?.likes ?? 0;
+  const resolved = await resolveLike(videoId, apiData.userId, previousLikes);
+  apiData.like = resolved.like;
+  apiData.likeStale = resolved.stale;
+  return apiData;
+}
+
 async function stats(interaction, { guildId }) {
   const videoId = interaction.options.getString('video_id');
-  const apiData = await fetchNicoData(videoId);
+  const apiData = await fetchVideoThumbInfo(videoId);
   if (!apiData) return await interaction.editReply(`❌ 動画ID ${videoId} のデータが取得できませんでした。`);
+  await withResolvedLike(videoId, apiData);
 
   const previous = await dbService.getYesterdayStats(videoId);
 
@@ -51,8 +63,13 @@ async function add(interaction, { client, guildId }) {
   const exists = await dbService.hasVideo(guildId, videoId);
   if (exists) return await interaction.editReply(`⚠️ ${videoId} は既に監視リストに存在します。`);
 
-  const apiData = await fetchNicoData(videoId);
+  const apiData = await fetchVideoThumbInfo(videoId);
   if (!apiData) return await interaction.editReply(`❌ 動画が見つかりませんでした。`);
+  // 新規登録のため引き継ぐ過去記録が無い（previousLikes=0）。resolveLikeで初回から
+  // 実際のいいね数を拾えるならそれを使い、拾えなければ0のまま（次回以降更新される）
+  const resolved = await resolveLike(videoId, apiData.userId, 0);
+  apiData.like = resolved.like;
+  apiData.likeStale = resolved.stale;
 
   await dbService.addVideo(guildId, videoId, apiData.title, apiData.tags, apiData.thumbnail, apiData.publishedAt);
   await dbService.recordStats(videoId, apiData.view, apiData.comment, apiData.mylist, apiData.like);
@@ -60,7 +77,8 @@ async function add(interaction, { client, guildId }) {
   await dbService.upsertNotifyState(guildId, videoId, {
     views: apiData.view, comments: apiData.comment, mylists: apiData.mylist, likes: apiData.like,
   });
-  await interaction.editReply(`✅ **${apiData.title}** (${videoId}) を監視リストに追加しました！`);
+  const likeNote = apiData.likeStale ? '\n※ いいね数は初回取得できなかったため0で登録しました（次回以降の集計で更新されます）' : '';
+  await interaction.editReply(`✅ **${apiData.title}** (${videoId}) を監視リストに追加しました！${likeNote}`);
 
   const watched = await dbService.getAllWatchedVideoIds();
   client.user.setActivity(`${watched.length}本の動画を監視中`, { type: 3 });
@@ -81,8 +99,9 @@ async function remove(interaction, { client, guildId }) {
 async function compare(interaction) {
   const v1 = interaction.options.getString('video_id1');
   const v2 = interaction.options.getString('video_id2');
-  const [data1, data2] = await Promise.all([fetchNicoData(v1), fetchNicoData(v2)]);
+  const [data1, data2] = await Promise.all([fetchVideoThumbInfo(v1), fetchVideoThumbInfo(v2)]);
   if (!data1 || !data2) return await interaction.editReply(`❌ 一部または両方の動画データが取得できませんでした。`);
+  await Promise.all([withResolvedLike(v1, data1), withResolvedLike(v2, data2)]);
 
   // 監視対象なら、直近24時間の伸び（DBの生履歴の中で最も古い記録との差分）も比較する
   const [growth1, growth2] = await Promise.all([
@@ -127,6 +146,11 @@ async function compare(interaction) {
       name: `🚀 伸び率対決`,
       value: `再生の伸びが速いのは: **${winner}**（A: ${utils.formatDiff(g1.view)} / B: ${utils.formatDiff(g2.view)}）`
     });
+  }
+
+  const staleNames = [data1.likeStale && 'A', data2.likeStale && 'B'].filter(Boolean);
+  if (staleNames.length) {
+    embed.setFooter({ text: `※ ${staleNames.join('・')}のいいねは最新値を取得できず、前回の記録値を表示しています` });
   }
 
   await interaction.editReply({ embeds: [embed] });

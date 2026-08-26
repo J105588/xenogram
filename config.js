@@ -1,4 +1,21 @@
-require('dotenv').config();
+// quiet: true を付けないと、dotenv 17系は起動のたびに無関係な宣伝的な
+// "tip" メッセージを標準出力に出す。/logs コマンドがPM2の生ログをそのまま
+// Discordへ転送する設計のため、放置すると管理者に毎回そのメッセージが見えてしまう。
+require('dotenv').config({ quiet: true });
+
+// MILESTONE_STEP=0 のような不正値を Number(... || 100) でそのまま通すと、
+// checkMilestone() 内の除算(値 / step)が Infinity になり、キリ番判定が
+// エラーも警告も無く常にfalseになる（機能が黙って死ぬ）ため、ここで弾く。
+function positiveIntOrDefault(rawValue, fallback) {
+  const n = Number(rawValue);
+  if (!Number.isFinite(n) || n <= 0) {
+    if (rawValue !== undefined && rawValue !== '') {
+      console.warn(`[CONFIG] 不正な数値 "${rawValue}" が指定されたため既定値 ${fallback} を使用します`);
+    }
+    return fallback;
+  }
+  return n;
+}
 
 module.exports = {
   // 【廃止】監視対象のニコニコユーザーIDは .env ではなくサーバーごとにDBで管理する（/user_add）。
@@ -11,7 +28,7 @@ module.exports = {
   FOOTER_TEXT: "XENOGRAM Analytics",
   // マイルストーン（キリ番）の判定単位。動画の再生数規模が大きくなってきたら
   // 100→1000のように環境変数で引き上げる
-  MILESTONE_STEP: Number(process.env.MILESTONE_STEP || 100),
+  MILESTONE_STEP: positiveIntOrDefault(process.env.MILESTONE_STEP, 100),
 
   // Environment variables
   DISCORD: {
